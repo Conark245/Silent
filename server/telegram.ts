@@ -71,6 +71,42 @@ ${escapeMarkdown(donation.message || '(No message)')}
   return sentCount > 0;
 }
 
+export async function sendTelegramTestMessage(botToken: string, adminIds: string[]) {
+  const text = `🔔 *Test Message*
+This is a test message to verify your Telegram Bot connection for DonationLive.
+If you received this, your bot token and admin IDs are configured correctly!`;
+  
+  let sentCount = 0;
+  for (const adminId of adminIds) {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: adminId,
+          text,
+          parse_mode: 'Markdown',
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        sentCount++;
+      } else {
+        console.error(`[Telegram] Failed to send test message to admin ${adminId}:`, data.description);
+        if (adminIds.length === 1) {
+            throw new Error(data.description || 'Unknown Telegram API error');
+        }
+      }
+    } catch (err: any) {
+      console.error(`[Telegram] Error sending test message to ${adminId}:`, err);
+      if (adminIds.length === 1) {
+          throw err;
+      }
+    }
+  }
+  return sentCount;
+}
+
 export async function handleTelegramWebhook(body: any) {
   const settings = db.getTelegramSettings();
 

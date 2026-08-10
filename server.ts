@@ -12,7 +12,7 @@ import {
   AuthenticatedRequest,
   verifyAdminSession,
 } from './server/auth';
-import { sendTelegramNotification, handleTelegramWebhook } from './server/telegram';
+import { sendTelegramNotification, handleTelegramWebhook, sendTelegramTestMessage } from './server/telegram';
 import { realtimeServer } from './server/realtime';
 import { uploadMiddleware } from './server/uploads';
 import { Donation } from './src/types';
@@ -191,6 +191,12 @@ async function startServer() {
     res.json(recent);
   });
 
+  // Get overlay settings (theme)
+  app.get('/api/overlay/settings', (_req, res) => {
+    const settings = db.getSystemSettings();
+    res.json({ themeConfig: settings.themeConfig });
+  });
+
   // Mark event as processed by overlay
   app.post('/api/overlay/events/:eventId/mark-processed', (req, res) => {
     db.markEventProcessed(req.params.eventId);
@@ -348,6 +354,16 @@ async function startServer() {
     res.json(donations);
   });
 
+  app.delete('/api/admin/donations/history', requireAdminAuth, (req: AuthenticatedRequest, res) => {
+    db.clearDonationHistory();
+    auditLogService.log({
+      adminId: req.admin?.id,
+      action: 'CLEAR_AUDIT_LOGS',
+      metadata: { note: 'Cleared donation history' }
+    });
+    res.json({ success: true });
+  });
+
   app.patch('/api/admin/donations/:id/status', requireAdminAuth, (req: AuthenticatedRequest, res) => {
     const { status } = req.body;
     if (status !== 'APPROVED' && status !== 'DECLINED') {
@@ -379,19 +395,37 @@ async function startServer() {
     res.json(logs);
   });
 
+  app.delete('/api/admin/audit-logs', requireAdminAuth, (req: AuthenticatedRequest, res) => {
+    auditLogService.clearLogs();
+    auditLogService.log({
+      adminId: req.admin?.id,
+      action: 'CLEAR_AUDIT_LOGS',
+      metadata: { note: 'Cleared audit logs' }
+    });
+    res.json({ success: true });
+  });
+
 
   app.get('/api/admin/system-settings', requireAdminAuth, (_req, res) => {
     res.json(db.getSystemSettings());
   });
   app.post('/api/admin/system-settings', requireAdminAuth, (req: AuthenticatedRequest, res) => {
-    const { defaultSoundId } = req.body;
-    const updated = db.updateSystemSettings({
-      defaultSoundId: defaultSoundId !== undefined ? defaultSoundId : undefined,
-    });
+    const { defaultSoundId, themeConfig } = req.body;
+    
+    const updates: any = {};
+    if (defaultSoundId !== undefined) updates.defaultSoundId = defaultSoundId;
+    if (themeConfig !== undefined) updates.themeConfig = themeConfig;
+
+    const updated = db.updateSystemSettings(updates);
+    
+    if (themeConfig !== undefined) {
+      realtimeServer.broadcastThemeUpdate(updated.themeConfig);
+    }
+    
     auditLogService.log({
       adminId: req.admin!.id,
       action: 'UPDATE_SYSTEM_SETTINGS',
-      metadata: { defaultSoundId: updated.defaultSoundId },
+      metadata: { updated: true },
     });
     res.json({ success: true, settings: updated });
   });

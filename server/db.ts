@@ -228,6 +228,19 @@ class MongoDatabase {
           webhookUrl: tgSettings.webhookUrl,
           isWebhookActive: tgSettings.isWebhookActive,
         };
+      }
+
+      // System Settings
+      const sysSettings: any = await SystemSettingsModel.findOne().lean();
+      if (sysSettings) {
+        this.cache.system_settings = {
+          defaultSoundId: sysSettings.defaultSoundId,
+          themeConfig: sysSettings.themeConfig || {
+            fontFamily: 'Inter',
+            backgroundColor: 'transparent',
+            animationSpeed: 1,
+          }
+        };
       } else {
         await TelegramSettingsModel.create(initialTelegramSettings as any);
       }
@@ -407,6 +420,13 @@ class MongoDatabase {
     return [...this.cache.donations].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
+  }
+
+  clearDonationHistory() {
+    this.cache.donations = this.cache.donations.filter(d => d.status === 'PENDING');
+    if (this.isConnected) {
+      DonationModel.deleteMany({ status: { $in: ['APPROVED', 'DECLINED'] } }).catch((err: any) => console.error('[MongoDB] Donation history clear error:', err));
+    }
   }
 
   getDonationById(id: string) {
@@ -591,6 +611,13 @@ class MongoDatabase {
     return [...this.cache.audit_logs].sort(
       (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     );
+  }
+
+  clearAuditLogs() {
+    this.cache.audit_logs = [];
+    if (this.isConnected) {
+      AuditLogModel.deleteMany({}).catch((err: any) => console.error('[MongoDB] AuditLog clear error:', err));
+    }
   }
 }
 

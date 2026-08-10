@@ -46,6 +46,19 @@ class RealtimeServer {
     }
   }
 
+
+  broadcastThemeUpdate(themeConfig: any) {
+    const payload = JSON.stringify(themeConfig);
+    const message = `event: theme_updated\ndata: ${payload}\n\n`;
+    for (const client of this.clients) {
+      try {
+        client.write(message);
+      } catch (err) {
+        this.clients.delete(client);
+      }
+    }
+  }
+
   getClientCount(): number {
     return this.clients.size;
   }

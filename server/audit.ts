@@ -46,4 +46,7 @@ export const auditLogService = {
   getLogs(): AuditLog[] {
     return db.getAuditLogs();
   },
+  clearLogs() {
+    db.clearAuditLogs();
+  },
 };

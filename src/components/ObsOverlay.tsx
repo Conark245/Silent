@@ -10,6 +10,8 @@ export const ObsOverlay: React.FC = () => {
   const [muted, setMuted] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
   const [recentDonors, setRecentDonors] = useState<Donation[]>([]);
+  const [themeConfig, setThemeConfig] = useState<any>({ fontFamily: 'Inter', backgroundColor: 'transparent', animationSpeed: 1 });
+  const speed = themeConfig?.animationSpeed || 1;
 
   // Track processed event IDs to prevent duplicate playback
   const processedEventIdsRef = useRef<Set<string>>(new Set());
@@ -34,8 +36,16 @@ export const ObsOverlay: React.FC = () => {
           setRecentDonors(data);
         }
       }
+      
+      const themeRes = await fetch('/api/overlay/settings');
+      if (themeRes.ok) {
+        const themeData = await themeRes.json();
+        if (themeData.themeConfig) {
+          setThemeConfig(themeData.themeConfig);
+        }
+      }
     } catch (e) {
-      console.error('[OBS Overlay] Error fetching recent donors:', e);
+      console.error('[OBS Overlay] Error fetching recent donors or theme:', e);
     }
   };
 
@@ -65,6 +75,16 @@ export const ObsOverlay: React.FC = () => {
           }
         } catch (err) {
           console.error('[OBS Overlay] Failed to parse event SSE:', err);
+        }
+      });
+
+      eventSource.addEventListener('theme_updated', (e: MessageEvent) => {
+        try {
+          const newTheme = JSON.parse(e.data);
+          console.log('[OBS Overlay] New theme settings received:', newTheme);
+          setThemeConfig(newTheme);
+        } catch (err) {
+          console.error('[OBS Overlay] Failed to parse theme SSE:', err);
         }
       });
 
@@ -228,7 +248,7 @@ export const ObsOverlay: React.FC = () => {
             initial={{ opacity: 0, scale: 0.75, y: 60, filter: 'blur(10px)' }}
             animate={{ opacity: 1, scale: 1, y: 0, filter: 'blur(0px)' }}
             exit={{ opacity: 0, scale: 0.8, y: -50, filter: 'blur(8px)' }}
-            transition={{ type: 'spring', stiffness: 280, damping: 22, mass: 0.8 }}
+            transition={{ type: 'spring', stiffness: 280, damping: 22, mass: 0.8, bounce: 0.25 / speed }}
             className="max-w-2xl w-full mx-4 relative z-30"
           >
             <div className="bg-slate-950/90 border-2 border-amber-500/80 rounded-3xl p-8 shadow-2xl shadow-amber-500/20 backdrop-blur-md text-white text-center relative overflow-hidden">
@@ -254,7 +274,7 @@ export const ObsOverlay: React.FC = () => {
               <motion.div
                 initial={{ opacity: 0, y: -15, scale: 0.85 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={{ delay: 0.15, duration: 0.35 }}
+                transition={{ delay: 0.15 / speed, duration: 0.35 / speed }}
                 className="inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black text-xs uppercase tracking-widest mb-4 shadow-lg"
               >
                 <Sparkles className="w-4 h-4 fill-current" />
@@ -282,8 +302,8 @@ export const ObsOverlay: React.FC = () => {
                     initial={{ scale: 0.4, rotate: -10 }}
                     animate={{ scale: [1, 1.08, 1], rotate: [0, 4, -4, 0] }}
                     transition={{
-                      scale: { duration: 0.4, type: 'spring', stiffness: 300 },
-                      rotate: { duration: 2.2, repeat: Infinity, ease: 'easeInOut' },
+                      scale: { duration: 0.4 / speed, type: 'spring', stiffness: 300 },
+                      rotate: { duration: 2.2 / speed, repeat: Infinity, ease: 'easeInOut' },
                     }}
                     src={sticker.url}
                     alt={sticker.name}
@@ -306,7 +326,7 @@ export const ObsOverlay: React.FC = () => {
               <motion.div
                 initial={{ opacity: 0, scale: 0.7 }}
                 animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.28, type: 'spring', stiffness: 320, damping: 18 }}
+                transition={{ delay: 0.28 / speed, type: 'spring', stiffness: 320, damping: 18 }}
                 className="text-2xl font-black text-emerald-400 font-mono my-2"
               >
                 +{donation.amount.toLocaleString()} {donation.currency}
@@ -317,7 +337,7 @@ export const ObsOverlay: React.FC = () => {
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.35, duration: 0.3 }}
+                  transition={{ delay: 0.35 / speed, duration: 0.3 / speed }}
                   className="inline-block px-3 py-1 rounded-lg bg-indigo-950/80 border border-indigo-500/40 text-indigo-300 text-xs font-semibold mb-3"
                 >
                   🎁 {item.name}
@@ -329,7 +349,7 @@ export const ObsOverlay: React.FC = () => {
                 <motion.div
                   initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.4, duration: 0.35 }}
+                  transition={{ delay: 0.4 / speed, duration: 0.35 / speed }}
                   className="mt-4 pt-4 border-t border-slate-800/80 max-w-lg mx-auto"
                 >
                   <p className="text-lg text-slate-200 font-medium italic">

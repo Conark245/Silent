@@ -43,6 +43,9 @@ import {
   Radio,
   Sun,
   Moon,
+  Download,
+  Archive,
+  Palette,
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -213,6 +216,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           const data = await safeParseJson(res);
           if (data) setDonations(data);
         }
+      } else if (activeTab === 'history') {
+        // Fetch all processed donations (APPROVED or DECLINED)
+        const res = await fetch(`/api/admin/donations`);
+        if (res.status === 401) { onLogout(); return; }
+        if (res.ok) {
+          const data = await safeParseJson(res);
+          if (data) {
+             setDonations(data.filter((d: any) => d.status === 'APPROVED' || d.status === 'DECLINED'));
+          }
+        }
       } else if (activeTab === 'payment-methods') {
         const res = await fetch('/api/admin/payment-methods');
         if (res.status === 401) { onLogout(); return; }
@@ -233,6 +246,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         if (mediaRes.ok) {
           const data = await safeParseJson(mediaRes);
           if (data) setMediaAssets(data);
+        }
+      } else if (activeTab === 'theme') {
+        const sysRes = await fetch('/api/admin/system-settings');
+        if (sysRes.status === 401) { onLogout(); return; }
+        if (sysRes.ok) {
+          const sysData = await safeParseJson(sysRes);
+          if (sysData) setSystemSettings(sysData);
         }
       } else if (activeTab === 'media') {
         const [mediaRes, sysRes] = await Promise.all([
@@ -274,21 +294,56 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  const handleSimulateTelegramAction = async (donationId: string, action: 'approve' | 'decline') => {
+  const handleUpdateDonationStatus = async (donationId: string, action: 'approve' | 'decline') => {
     try {
-      const res = await fetch('/api/telegram/simulate-callback', {
-        method: 'POST',
+      const res = await fetch(`/api/admin/donations/${donationId}/status`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, donationId, adminName: 'AdminDashboardTester' }),
+        body: JSON.stringify({ status: action === 'approve' ? 'APPROVED' : 'DECLINED' }),
       });
 
       if (res.ok) {
         loadTabContent();
       } else {
-        alert('Simulation failed');
+        const err = await res.json();
+        alert(`Action failed: ${err.error || 'Unknown error'}`);
       }
     } catch (err) {
-      alert('Error triggering telegram simulation');
+      alert('Error updating donation status');
+    }
+  };
+
+  const handleClearHistory = async () => {
+    if (!window.confirm('Are you sure you want to delete all processed donation history? This action cannot be undone.')) return;
+    try {
+      setLoading(true);
+      const res = await fetch('/api/admin/donations/history', { method: 'DELETE' });
+      if (res.ok) {
+        loadTabContent(); // Refresh history
+      } else {
+        alert('Failed to clear history');
+      }
+    } catch (err) {
+      alert('Error clearing history');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClearLogs = async () => {
+    if (!window.confirm('Are you sure you want to clear all audit logs? This action cannot be undone.')) return;
+    try {
+      setLoading(true);
+      const res = await fetch('/api/admin/audit-logs', { method: 'DELETE' });
+      if (res.ok) {
+        loadTabContent(); // Refresh logs
+      } else {
+        alert('Failed to clear logs');
+      }
+    } catch (err) {
+      alert('Error clearing logs');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -429,6 +484,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+
+  const handleTestTelegramConnection = async () => {
+    try {
+      const adminIds = telegramFormAdminIds
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      if (!telegramFormToken || adminIds.length === 0) {
+        return alert('Please enter Bot Token and at least one Admin ID before testing.');
+      }
+
+      const res = await fetch('/api/admin/telegram-settings/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botToken: telegramFormToken, adminIds }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        alert('Test message sent successfully to ' + data.sentCount + ' admin(s).');
+      } else {
+        const err = await res.json();
+        alert('Failed to send test message: ' + (err.error || 'Unknown error'));
+      }
+    } catch (err) {
+      alert('Error sending test message');
+    }
+  };
+
   const handleSaveTelegramSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -563,6 +648,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             >
               <ImageIcon className="w-5 h-5" />
               <span className="whitespace-nowrap">Media Assets</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('theme')}
+              className={`shrink-0 md:w-full flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 md:py-3 rounded-lg text-sm font-medium transition cursor-pointer ${
+                activeTab === 'theme'
+                  ? 'bg-indigo-500/10 text-indigo-400'
+                  : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              <Palette className="w-5 h-5" />
+              <span className="whitespace-nowrap">Theme Settings</span>
             </button>
 
             <button
@@ -764,7 +861,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <th className="px-6 py-3">Reward Item</th>
                         <th className="px-6 py-3">Payment</th>
                         <th className="px-6 py-3 text-right">Status</th>
-                        <th className="px-6 py-3 text-right">Simulate Action</th>
+                        <th className="px-6 py-3 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="text-sm divide-y divide-slate-800">
@@ -821,13 +918,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               {d.status === 'PENDING' ? (
                                 <div className="flex items-center justify-end gap-1.5">
                                   <button
-                                    onClick={() => handleSimulateTelegramAction(d.id, 'approve')}
+                                    onClick={() => handleUpdateDonationStatus(d.id, 'approve')}
                                     className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-slate-900 dark:text-white rounded text-xs font-semibold transition cursor-pointer"
                                   >
                                     Approve
                                   </button>
                                   <button
-                                    onClick={() => handleSimulateTelegramAction(d.id, 'decline')}
+                                    onClick={() => handleUpdateDonationStatus(d.id, 'decline')}
                                     className="px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-slate-900 dark:text-white rounded text-xs font-semibold transition cursor-pointer"
                                   >
                                     Decline
@@ -835,6 +932,143 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 </div>
                               ) : (
                                 <span className="text-xs text-slate-400 dark:text-slate-500 font-mono">Completed</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: HISTORY */}
+          {activeTab === 'history' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <Archive className="w-5 h-5 text-indigo-400" />
+                  Donation History
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Log of all processed (approved or declined) donations.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                   <span className="text-sm text-slate-500 dark:text-slate-400 font-medium">Total records: {donations.length}</span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={loadTabContent}
+                    className="px-3.5 py-1.5 bg-white dark:bg-[#1E293B] border border-slate-200 dark:border-slate-800 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs rounded-lg flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                    <span>Refresh</span>
+                  </button>
+                  <button
+                    onClick={handleClearHistory}
+                    className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs rounded-lg flex items-center gap-1.5 cursor-pointer shadow-md"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span>Clear History</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      const csvContent = [
+                        ['ID', 'Date', 'Donor Name', 'Amount', 'Currency', 'Item', 'Payment Method', 'Reference', 'Status', 'Processed By'].join(','),
+                        ...donations.map(d => [
+                          d.publicId,
+                          new Date(d.createdAt).toLocaleString().replace(/,/g, ''),
+                          `"${(d.donorName || '').replace(/"/g, '""')}"`,
+                          d.amount,
+                          d.currency,
+                          `"${(d.donationItemName || '').replace(/"/g, '""')}"`,
+                          `"${(d.paymentMethodName || '').replace(/"/g, '""')}"`,
+                          `"${(d.paymentReference || '').replace(/"/g, '""')}"`,
+                          d.status,
+                          `"${(d.approvedBy || d.declinedBy || '').replace(/"/g, '""')}"`
+                        ].join(','))
+                      ].join('\n');
+
+                      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                      const url = URL.createObjectURL(blob);
+                      const link = document.createElement('a');
+                      link.href = url;
+                      link.setAttribute('download', `donations_history_${new Date().toISOString().slice(0, 10)}.csv`);
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
+                    }}
+                    className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-lg flex items-center gap-1.5 cursor-pointer shadow-md"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Export CSV</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Table */}
+              <div className="bg-white dark:bg-[#1E293B] rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="bg-slate-200 dark:bg-slate-800/50 text-xs text-slate-500 dark:text-slate-400 uppercase font-bold">
+                      <tr>
+                        <th className="px-6 py-3">Date</th>
+                        <th className="px-6 py-3">Donor</th>
+                        <th className="px-6 py-3">Amount</th>
+                        <th className="px-6 py-3">Payment</th>
+                        <th className="px-6 py-3 text-right">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-sm divide-y divide-slate-800">
+                      {donations.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="px-6 py-8 text-center text-slate-400 dark:text-slate-500">
+                            No processed donations found.
+                          </td>
+                        </tr>
+                      ) : (
+                        donations.map((d) => (
+                          <tr
+                            key={d.id}
+                            className="transition hover:bg-slate-200 dark:hover:bg-slate-800/30"
+                          >
+                            <td className="px-6 py-4 text-xs text-slate-500 dark:text-slate-400">
+                              {new Date(d.createdAt).toLocaleString()}
+                            </td>
+                            <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100">
+                              <div>{d.donorName}</div>
+                              <div className="text-[10px] font-mono text-slate-400 dark:text-slate-500">{d.publicId}</div>
+                            </td>
+                            <td className="px-6 py-4 font-mono font-bold text-emerald-400">
+                              {d.amount.toLocaleString()} {d.currency}
+                            </td>
+                            <td className="px-6 py-4 text-xs text-slate-500 dark:text-slate-400">
+                              <div>{d.paymentMethodName || 'N/A'}</div>
+                              {d.paymentReference && (
+                                <div className="text-[10px] font-mono text-slate-400 dark:text-slate-500">Ref: {d.paymentReference}</div>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              {d.status === 'APPROVED' && (
+                                <div className="flex flex-col items-end">
+                                  <span className="text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded text-xs uppercase font-bold inline-block">
+                                    Approved
+                                  </span>
+                                  <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">by {d.approvedBy || d.declinedBy}</span>
+                                </div>
+                              )}
+                              {d.status === 'DECLINED' && (
+                                <div className="flex flex-col items-end">
+                                  <span className="text-slate-400 dark:text-slate-500 bg-slate-500/10 px-2 py-1 rounded text-xs uppercase font-bold inline-block">
+                                    Declined
+                                  </span>
+                                  <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">by {d.approvedBy || d.declinedBy}</span>
+                                </div>
                               )}
                             </td>
                           </tr>
@@ -1501,12 +1735,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </span>
                 </div>
 
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-slate-900 dark:text-white font-semibold rounded-lg transition cursor-pointer shadow-md"
-                >
-                  Save Telegram Configuration
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="submit"
+                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition cursor-pointer shadow-md"
+                  >
+                    Save Telegram Configuration
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleTestTelegramConnection}
+                    className="px-5 py-2.5 bg-slate-700 hover:bg-slate-800 text-white font-semibold rounded-lg transition cursor-pointer shadow-md flex items-center gap-2"
+                  >
+                    <Send className="w-4 h-4" />
+                    Test Connection
+                  </button>
+                </div>
               </form>
             </div>
           )}
@@ -1525,13 +1769,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </p>
                 </div>
 
-                <button
-                  onClick={loadTabContent}
-                  className="px-3 py-1.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs rounded-lg font-medium flex items-center gap-1.5 transition cursor-pointer self-start md:self-auto"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Refresh Logs</span>
-                </button>
+                <div className="flex gap-2 self-start md:self-auto">
+                  <button
+                    onClick={handleClearLogs}
+                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs rounded-lg font-medium flex items-center gap-1.5 transition cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Clear Logs</span>
+                  </button>
+                  <button
+                    onClick={loadTabContent}
+                    className="px-3 py-1.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs rounded-lg font-medium flex items-center gap-1.5 transition cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Refresh Logs</span>
+                  </button>
+                </div>
               </div>
 
               {/* Filters & Search Toolbar */}

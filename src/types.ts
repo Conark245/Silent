@@ -96,6 +96,11 @@ export interface TelegramSettings {
 
 export interface SystemSettings {
   defaultSoundId?: string;
+  themeConfig?: {
+    fontFamily: string;
+    backgroundColor: string;
+    animationSpeed: number; // e.g. 1 (normal), 0.5 (slow), 2 (fast)
+  };
 }
 
 export interface AdminUser {

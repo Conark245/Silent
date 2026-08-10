@@ -117,6 +117,11 @@ const TelegramSettingsSchema = new Schema({
 // System Settings Schema
 const SystemSettingsSchema = new Schema({
   defaultSoundId: { type: String, default: '' },
+  themeConfig: {
+    fontFamily: { type: String, default: 'Inter' },
+    backgroundColor: { type: String, default: 'transparent' },
+    animationSpeed: { type: Number, default: 1 },
+  },
 });
 
 export const AdminModel = mongoose.models.Admin || mongoose.model('Admin', AdminSchema);
