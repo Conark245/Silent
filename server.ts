@@ -14,7 +14,7 @@ import {
 } from './server/auth';
 import { sendTelegramNotification, handleTelegramWebhook, sendTelegramTestMessage, setTelegramWebhook } from './server/telegram';
 import { realtimeServer } from './server/realtime';
-import { uploadMiddleware } from './server/uploads';
+import { uploadMiddleware, saveUploadedFile } from './server/uploads';
 import { Donation } from './src/types';
 import { auditLogService } from './server/audit';
 
@@ -26,12 +26,11 @@ async function startServer() {
   app.use(express.urlencoded({ extended: true, limit: '25mb' }));
   app.use(cookieParser());
 
-  // Serve uploaded files statically
+  // Serve static uploads if directory exists (legacy support without crashing)
   const uploadsDir = path.join(process.cwd(), 'uploads');
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
+  if (fs.existsSync(uploadsDir)) {
+    app.use('/uploads', express.static(uploadsDir));
   }
-  app.use('/uploads', express.static(uploadsDir));
 
   // Serve public static assets
   const publicDir = path.join(process.cwd(), 'public');
@@ -132,12 +131,16 @@ async function startServer() {
   });
 
   // Upload proof screenshot for donation
-  app.post('/api/donations/upload-proof', uploadMiddleware.single('file'), (req, res) => {
+  app.post('/api/donations/upload-proof', uploadMiddleware.single('file'), async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
-    const fileUrl = `/uploads/${req.file.filename}`;
-    res.json({ success: true, url: fileUrl });
+    try {
+      const fileUrl = await saveUploadedFile(req.file);
+      res.json({ success: true, url: fileUrl });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'File upload failed' });
+    }
   });
 
   // Telegram webhook endpoint
@@ -623,14 +626,14 @@ async function startServer() {
     res.json(db.getMediaAssets(type));
   });
 
-  app.post('/api/admin/media/upload', requireAdminAuth, uploadMiddleware.single('file'), (req: AuthenticatedRequest, res) => {
+  app.post('/api/admin/media/upload', requireAdminAuth, uploadMiddleware.single('file'), async (req: AuthenticatedRequest, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: 'No media file provided' });
       }
 
       const { name, type, duration, volume } = req.body;
-      const fileUrl = `/uploads/${req.file.filename}`;
+      const fileUrl = await saveUploadedFile(req.file);
 
       const media = db.addMediaAsset({
         name: name || req.file.originalname,

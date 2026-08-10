@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import {
   AdminUser,
   Donation,
@@ -67,7 +68,7 @@ class MongoDatabase {
   };
 
   private isConnected = false;
-  private backupFilePath = path.join(process.cwd(), 'uploads', 'db_backup.json');
+  private backupFilePath = path.join(os.tmpdir(), 'obs_db_backup.json');
 
   constructor() {
     this.loadFromLocalBackup();
