@@ -7,7 +7,7 @@ interface AdminLoginProps {
 }
 
 export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess, onNavigateHome }) => {
-  const [username, setUsername] = useState('admin');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -114,13 +114,6 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLoginSuccess, onNaviga
             )}
           </button>
         </form>
-
-        <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-800 text-center">
-          <p className="text-[11px] text-slate-500">
-            Default credentials: <span className="font-mono text-slate-700 dark:text-slate-300">admin</span> /{' '}
-            <span className="font-mono text-slate-700 dark:text-slate-300">admin123</span>
-          </p>
-        </div>
       </div>
     </div>
   );

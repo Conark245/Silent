@@ -1,5 +1,5 @@
 import { Response } from 'express';
-import { DonationEvent } from '../src/types';
+import { Donation, DonationEvent } from '../src/types';
 
 class RealtimeServer {
   private clients: Set<Response> = new Set();
@@ -36,6 +36,19 @@ class RealtimeServer {
   broadcastDonationEvent(event: DonationEvent) {
     const payload = JSON.stringify(event);
     const message = `event: donation_approved\ndata: ${payload}\n\n`;
+
+    for (const client of this.clients) {
+      try {
+        client.write(message);
+      } catch (err) {
+        this.clients.delete(client);
+      }
+    }
+  }
+
+  broadcastDonationStatus(donation: Donation) {
+    const payload = JSON.stringify(donation);
+    const message = `event: donation_status_changed\ndata: ${payload}\n\n`;
 
     for (const client of this.clients) {
       try {

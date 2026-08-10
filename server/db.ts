@@ -1,5 +1,7 @@
 import mongoose from 'mongoose';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import {
   AdminUser,
   Donation,
@@ -65,9 +67,46 @@ class MongoDatabase {
   };
 
   private isConnected = false;
+  private backupFilePath = path.join(process.cwd(), 'uploads', 'db_backup.json');
 
   constructor() {
+    this.loadFromLocalBackup();
     this.connect();
+  }
+
+  private loadFromLocalBackup() {
+    try {
+      if (fs.existsSync(this.backupFilePath)) {
+        const raw = fs.readFileSync(this.backupFilePath, 'utf-8');
+        const data = JSON.parse(raw);
+        if (data && typeof data === 'object') {
+          if (Array.isArray(data.admins) && data.admins.length > 0) this.cache.admins = data.admins;
+          if (Array.isArray(data.payment_methods)) this.cache.payment_methods = data.payment_methods;
+          if (Array.isArray(data.donation_items)) this.cache.donation_items = data.donation_items;
+          if (Array.isArray(data.media_assets)) this.cache.media_assets = data.media_assets;
+          if (Array.isArray(data.donations)) this.cache.donations = data.donations;
+          if (Array.isArray(data.donation_events)) this.cache.donation_events = data.donation_events;
+          if (Array.isArray(data.audit_logs)) this.cache.audit_logs = data.audit_logs;
+          if (data.telegram_settings) this.cache.telegram_settings = { ...this.cache.telegram_settings, ...data.telegram_settings };
+          if (data.system_settings) this.cache.system_settings = { ...this.cache.system_settings, ...data.system_settings };
+          console.log('[Database] Restored state from local disk backup');
+        }
+      }
+    } catch (e) {
+      console.error('[Database] Error loading local backup:', e);
+    }
+  }
+
+  private saveToLocalBackup() {
+    try {
+      const dir = path.dirname(this.backupFilePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(this.backupFilePath, JSON.stringify(this.cache, null, 2), 'utf-8');
+    } catch (e) {
+      console.error('[Database] Error saving local backup:', e);
+    }
   }
 
   private async connect() {
@@ -459,6 +498,7 @@ class MongoDatabase {
     };
 
     this.cache.donations.push(donation);
+    this.saveToLocalBackup();
     if (this.isConnected) {
       (DonationModel as any).create(donation).catch((err: any) => console.error('[MongoDB] Donation create error:', err));
     }
@@ -497,6 +537,7 @@ class MongoDatabase {
       updateObj.declinedBy = donation.declinedBy;
     }
 
+    this.saveToLocalBackup();
     if (this.isConnected) {
       (DonationModel as any).updateOne({ id: donation.id }, updateObj).catch((err: any) =>
         console.error('[MongoDB] Donation update error:', err)

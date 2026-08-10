@@ -72,6 +72,8 @@ const DonationSchema = new Schema({
   paymentMethodName: { type: String },
   donationItemId: { type: String },
   donationItemName: { type: String },
+  paymentReference: { type: String },
+  paymentProofUrl: { type: String },
   transactionRef: { type: String },
   slipUrl: { type: String },
   message: { type: String },

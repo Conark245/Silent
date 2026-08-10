@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Donation, DonationItem, MediaAsset, PaymentMethod } from '../types';
+import { Donation, DonationItem, MediaAsset, PaymentMethod, SystemSettings } from '../types';
 import { StatusModal } from './StatusModal';
 import { Sparkles, Copy, Upload, Check, ShieldAlert, Tv, ArrowRight, Volume2, VolumeX, Maximize2, X, Eye } from 'lucide-react';
 
@@ -15,6 +15,7 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [donationItems, setDonationItems] = useState<DonationItem[]>([]);
   const [mediaAssets, setMediaAssets] = useState<MediaAsset[]>([]);
+  const [systemSettings, setSystemSettings] = useState<SystemSettings | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Form state
@@ -22,6 +23,7 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
   const [customAmountInput, setCustomAmountInput] = useState('5000');
   const [selectedItemId, setSelectedItemId] = useState<string>('');
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState<string>('');
+  const [donorName, setDonorName] = useState('');
   const [message, setMessage] = useState('');
   const [paymentReference, setPaymentReference] = useState('');
   const [paymentProofUrl, setPaymentProofUrl] = useState('');
@@ -47,10 +49,11 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
   const fetchInitialData = async () => {
     try {
       setLoading(true);
-      const [pmRes, itemsRes, mediaRes] = await Promise.all([
+      const [pmRes, itemsRes, mediaRes, sysRes] = await Promise.all([
         fetch('/api/payment-methods'),
         fetch('/api/donation-items'),
         fetch('/api/media-assets'),
+        fetch('/api/system-settings'),
       ]);
 
       if (pmRes.ok) {
@@ -68,6 +71,10 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
       if (mediaRes.ok) {
         const mediaData: MediaAsset[] = await mediaRes.json();
         setMediaAssets(mediaData);
+      }
+      if (sysRes.ok) {
+        const sysData: SystemSettings = await sysRes.json();
+        setSystemSettings(sysData);
       }
     } catch (err) {
       console.error('Failed to load initial donation data:', err);
@@ -149,13 +156,23 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
       return;
     }
 
+    if (!paymentReference || !paymentReference.trim()) {
+      setErrorMessage('ကျေးဇူးပြု၍ Transaction Id ကို ထည့်သွင်းပေးပါ (Transaction ID is required).');
+      return;
+    }
+
+    if (!paymentProofUrl) {
+      setErrorMessage('Please upload a screenshot of your payment receipt (Payment Proof).');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       const res = await fetch('/api/donations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          donorName: '',
+          donorName: donorName.trim(),
           amount,
           currency: 'MMK',
           message: message.trim(),
@@ -216,8 +233,17 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
       });
   };
 
+  const theme = systemSettings?.themeConfig || {};
+  
+  const customStyles = {
+    '--theme-bg': theme.backgroundColor || '',
+    '--theme-card': theme.cardBackgroundColor || '',
+    '--theme-text': theme.textColor || '',
+    '--theme-primary': theme.primaryColor || '',
+  } as React.CSSProperties;
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-indigo-500 selection:text-white" style={{ ...customStyles, backgroundColor: theme.backgroundColor || undefined, color: theme.textColor || undefined }}>
       {/* Header */}
       <header className="border-b border-slate-200 bg-white/90 backdrop-blur-md sticky top-0 z-40 shadow-xs">
         <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
@@ -248,7 +274,7 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
             
 
             {/* 1. Amount & Reward Item */}
-            <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm space-y-4">
+            <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm space-y-4" style={{ backgroundColor: theme.cardBackgroundColor || undefined }}>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
                 1. Select Donation Amount <span className="text-rose-500">*</span>
               </label>
@@ -342,7 +368,7 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
                 <div className="flex items-center justify-between mb-2.5">
                   <span className="text-xs font-bold uppercase tracking-wider text-indigo-900 flex items-center gap-1.5">
                     <Tv className="w-4 h-4 text-indigo-600" />
-                    Stream Alert Preview (Stream မှာ တက်လာမဲ့ Alert)
+                    Stream Alert Preview
                   </span>
                   <div className="flex items-center gap-1.5">
                     <button
@@ -356,7 +382,7 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setShowFullPreviewModal(true)}
+                      onClick={() => { setShowFullPreviewModal(true); playSoundPreview(); }}
                       className="px-2.5 py-1 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg border border-slate-200 flex items-center gap-1 transition cursor-pointer shadow-2xs"
                     >
                       <Maximize2 className="w-3.5 h-3.5 text-slate-600" />
@@ -366,16 +392,7 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
                 </div>
 
                 {/* Simulated OBS Alert Card */}
-                <div className="bg-[#0b0f19] border-2 border-amber-500/80 rounded-2xl p-5 shadow-xl text-white text-center relative overflow-hidden transition-all duration-300 select-none">
-                  {/* Glowing background circles */}
-                  <div className="absolute -top-12 -left-12 w-32 h-32 bg-amber-500/20 rounded-full blur-2xl pointer-events-none" />
-                  <div className="absolute -bottom-12 -right-12 w-32 h-32 bg-indigo-500/20 rounded-full blur-2xl pointer-events-none" />
-
-                  {/* Top Badge */}
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black text-[10px] uppercase tracking-widest mb-2 shadow-md">
-                    <Sparkles className="w-3 h-3 fill-current" />
-                    <span>NEW DONATION ALERT!</span>
-                  </div>
+                <div className="bg-slate-950 rounded-2xl p-5 text-center relative overflow-hidden transition-all duration-300 select-none">
 
                   {/* Sticker / Video / Media Icon */}
                   <div className="my-2 flex justify-center items-center min-h-[80px]">
@@ -408,41 +425,50 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
                     +{(amount || 0).toLocaleString()} MMK
                   </div>
 
-                  {/* Reward Item Badge */}
-                  {selectedItem && (
-                    <div className="inline-block px-2.5 py-0.5 rounded-md bg-indigo-950/80 border border-indigo-500/40 text-indigo-300 text-[11px] font-semibold mb-2">
-                      🎁 {selectedItem.name}
-                    </div>
-                  )}
-
                   {/* Message */}
-                  <p className="text-xs text-slate-300 italic max-w-md mx-auto pt-2 border-t border-slate-800/80">
-                    "{message.trim() || 'Your message will appear here on live stream...'}"
-                  </p>
+                  <div className="mt-2 max-w-md mx-auto">
+                    <p className="text-sm md:text-base text-white font-black italic drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] stroke-black stroke-2" style={{ textShadow: '0px 2px 4px rgba(0,0,0,0.8), 0px 2px 8px rgba(0,0,0,0.8)' }}>
+                      "{message.trim() || 'Your message will appear here on live stream...'}"
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* 2. Message */}
-            <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-2">
-                2. Optional Message to Streamer
+            <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm space-y-4" style={{ backgroundColor: theme.cardBackgroundColor || undefined }}>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
+                2. Sender Name & Message (Optional)
               </label>
-              <textarea
-                rows={3}
-                placeholder="Say something nice to appear on OBS stream..."
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                maxLength={200}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600 text-sm transition"
-              />
-              <span className="text-xs text-slate-400 block text-right mt-1">
-                {message.length}/200 characters
-              </span>
+              
+              <div>
+                <input
+                  type="text"
+                  placeholder="Your Name (e.g. John Doe)"
+                  value={donorName}
+                  onChange={(e) => setDonorName(e.target.value)}
+                  maxLength={50}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600 text-sm transition"
+                />
+              </div>
+
+              <div>
+                <textarea
+                  rows={3}
+                  placeholder="Say something nice to appear on OBS stream..."
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  maxLength={200}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600 text-sm transition"
+                />
+                <span className="text-xs text-slate-400 block text-right mt-1">
+                  {message.length}/200 characters
+                </span>
+              </div>
             </div>
 
             {/* 3. Payment Method & Instructions */}
-            <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm space-y-4">
+            <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm space-y-4" style={{ backgroundColor: theme.cardBackgroundColor || undefined }}>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
                 3. Select Payment Method <span className="text-rose-500">*</span>
               </label>
@@ -529,11 +555,12 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
               <div className="space-y-3 pt-2">
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">
-                    Transaction Ref / Note Code (Optional)
+                    Transaction ID / Ref Code <span className="text-rose-500 font-bold">* (မဖြစ်မနေ)</span>
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. KBZ Pay Ref #12345678"
+                    required
+                    placeholder="Transaction Id နောက်ဆုံး 6 လုံးထည့်ပါ"
                     value={paymentReference}
                     onChange={(e) => setPaymentReference(e.target.value)}
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 text-sm placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600 font-mono"
@@ -611,16 +638,7 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
               <X className="w-5 h-5" />
             </button>
 
-            <div className="bg-slate-950/95 border-2 border-amber-500/80 rounded-3xl p-8 shadow-2xl shadow-amber-500/20 backdrop-blur-md text-white text-center relative overflow-hidden select-none">
-              {/* Background Glow */}
-              <div className="absolute -top-24 -left-24 w-60 h-60 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />
-              <div className="absolute -bottom-24 -right-24 w-60 h-60 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
-
-              {/* Top Badge */}
-              <div className="inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black text-xs uppercase tracking-widest mb-4 shadow-lg">
-                <Sparkles className="w-4 h-4 fill-current" />
-                <span>NEW DONATION ALERT!</span>
-              </div>
+            <div className="bg-slate-950 rounded-3xl p-8 shadow-2xl text-center relative overflow-hidden select-none">
 
               {/* Media Section */}
               <div className="my-4 flex justify-center items-center min-h-[140px]">
@@ -653,16 +671,9 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
                 +{(amount || 0).toLocaleString()} MMK
               </div>
 
-              {/* Reward Item Name */}
-              {selectedItem && (
-                <div className="inline-block px-3 py-1 rounded-lg bg-indigo-950/80 border border-indigo-500/40 text-indigo-300 text-xs font-semibold mb-3">
-                  🎁 {selectedItem.name}
-                </div>
-              )}
-
               {/* Message */}
-              <div className="mt-4 pt-4 border-t border-slate-800/80 max-w-lg mx-auto">
-                <p className="text-base text-slate-200 font-medium italic">
+              <div className="mt-2 max-w-lg mx-auto">
+                <p className="text-xl md:text-2xl text-white font-black italic drop-shadow-[0_4px_8px_rgba(0,0,0,0.9)] stroke-black stroke-2" style={{ textShadow: '0px 2px 10px rgba(0,0,0,0.8), 0px 4px 20px rgba(0,0,0,0.8)' }}>
                   "{message.trim() || 'Your message will appear here on live stream...'}"
                 </p>
               </div>

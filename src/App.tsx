@@ -14,7 +14,7 @@ export default function App() {
     const path = window.location.pathname;
     if (path.includes('overlay')) {
       setRoute('overlay');
-    } else if (path.startsWith('/donate')) {
+    } else if (path.startsWith('/live/zhik19qx')) {
       setRoute('user');
     } else {
       setRoute('admin');
@@ -53,7 +53,7 @@ export default function App() {
   const navigateTo = (newRoute: 'user' | 'admin' | 'overlay') => {
     setRoute(newRoute);
     let path = '/';
-    if (newRoute === 'user') path = '/donate';
+    if (newRoute === 'user') path = '/live/zhik19qx';
     if (newRoute === 'overlay') path = '/overlay';
     window.history.pushState({}, '', path);
   };

@@ -196,46 +196,9 @@ export const ObsOverlay: React.FC = () => {
       onClick={enableAudio}
       className="w-screen h-screen bg-transparent overflow-hidden relative flex items-center justify-center font-sans select-none"
     >
-      {/* Audio Unmute Helper Banner for OBS Browser Source */}
-      {!hasInteracted && (
-        <div className="absolute top-4 right-4 z-50 bg-slate-900/90 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-lg text-xs flex items-center gap-2 shadow-lg cursor-pointer hover:bg-slate-800">
-          <VolumeX className="w-4 h-4 text-amber-400" />
-          <span>Click anywhere to enable OBS audio</span>
-        </div>
-      )}
 
-      {/* Recent Donors Scrolling Marquee Banner Widget */}
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[92%] max-w-5xl bg-slate-950/85 border border-amber-500/40 rounded-2xl p-2.5 backdrop-blur-md shadow-2xl flex items-center gap-3 overflow-hidden text-white z-20">
-        <div className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black text-xs px-3.5 py-1.5 rounded-xl uppercase tracking-wider shrink-0 shadow-md">
-          <Sparkles className="w-3.5 h-3.5 fill-current" />
-          <span className="whitespace-nowrap">RECENT DONORS</span>
-        </div>
 
-        <div className="flex-1 overflow-hidden relative whitespace-nowrap">
-          <div className="animate-marquee">
-            {recentDonors.length > 0 ? (
-              [...recentDonors, ...recentDonors].map((d, index) => (
-                <div key={`${d.id}-${index}`} className="inline-flex items-center gap-2 text-xs font-bold mr-8">
-                  
-                  <span className="text-emerald-400 font-mono font-black">
-                    +{d.amount.toLocaleString()} {d.currency || 'MMK'}
-                  </span>
-                  {d.donationItemName && (
-                    <span className="text-indigo-300 text-[10px] bg-indigo-950/80 px-2 py-0.5 rounded-md border border-indigo-500/30 font-medium">
-                      {d.donationItemName}
-                    </span>
-                  )}
-                  <span className="text-slate-600 font-bold ml-1">•</span>
-                </div>
-              ))
-            ) : (
-              <div className="inline-flex items-center gap-2 text-xs font-bold mr-8 text-slate-500">
-                Awaiting new donations...
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+
 
       {/* Media Sound Element */}
       <audio ref={audioRef} />
@@ -251,35 +214,8 @@ export const ObsOverlay: React.FC = () => {
             transition={{ type: 'spring', stiffness: 280, damping: 22, mass: 0.8, bounce: 0.25 / speed }}
             className="max-w-2xl w-full mx-4 relative z-30"
           >
-            <div className="bg-slate-950/90 border-2 border-amber-500/80 rounded-3xl p-8 shadow-2xl shadow-amber-500/20 backdrop-blur-md text-white text-center relative overflow-hidden">
-              {/* Background Glow */}
-              <motion.div
-                animate={{
-                  scale: [1, 1.25, 1],
-                  opacity: [0.2, 0.4, 0.2],
-                }}
-                transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-                className="absolute -top-24 -left-24 w-60 h-60 bg-amber-500/20 rounded-full blur-3xl pointer-events-none"
-              />
-              <motion.div
-                animate={{
-                  scale: [1, 1.3, 1],
-                  opacity: [0.2, 0.4, 0.2],
-                }}
-                transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut', delay: 0.5 }}
-                className="absolute -bottom-24 -right-24 w-60 h-60 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"
-              />
+            <div className="text-white text-center relative">
 
-              {/* Top Badge */}
-              <motion.div
-                initial={{ opacity: 0, y: -15, scale: 0.85 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={{ delay: 0.15 / speed, duration: 0.35 / speed }}
-                className="inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black text-xs uppercase tracking-widest mb-4 shadow-lg"
-              >
-                <Sparkles className="w-4 h-4 fill-current" />
-                <span>NEW DONATION ALERT!</span>
-              </motion.div>
 
               {/* Sticker / Video Media Section */}
               <div className="my-4 flex justify-center items-center min-h-[160px]">
@@ -332,27 +268,15 @@ export const ObsOverlay: React.FC = () => {
                 +{donation.amount.toLocaleString()} {donation.currency}
               </motion.div>
 
-              {/* Reward Item Name */}
-              {item?.name && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.35 / speed, duration: 0.3 / speed }}
-                  className="inline-block px-3 py-1 rounded-lg bg-indigo-950/80 border border-indigo-500/40 text-indigo-300 text-xs font-semibold mb-3"
-                >
-                  🎁 {item.name}
-                </motion.div>
-              )}
-
               {/* Message */}
               {donation.message && (
                 <motion.div
                   initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.4 / speed, duration: 0.35 / speed }}
-                  className="mt-4 pt-4 border-t border-slate-800/80 max-w-lg mx-auto"
+                  className="mt-2 max-w-lg mx-auto"
                 >
-                  <p className="text-lg text-slate-200 font-medium italic">
+                  <p className="text-xl md:text-2xl text-white font-black italic drop-shadow-[0_4px_8px_rgba(0,0,0,0.9)] stroke-black stroke-2" style={{ textShadow: '0px 2px 10px rgba(0,0,0,0.8), 0px 4px 20px rgba(0,0,0,0.8)' }}>
                     "{donation.message}"
                   </p>
                 </motion.div>

@@ -12,7 +12,7 @@ import {
   AuthenticatedRequest,
   verifyAdminSession,
 } from './server/auth';
-import { sendTelegramNotification, handleTelegramWebhook, sendTelegramTestMessage } from './server/telegram';
+import { sendTelegramNotification, handleTelegramWebhook, sendTelegramTestMessage, setTelegramWebhook } from './server/telegram';
 import { realtimeServer } from './server/realtime';
 import { uploadMiddleware } from './server/uploads';
 import { Donation } from './src/types';
@@ -67,6 +67,11 @@ async function startServer() {
     res.json(media);
   });
 
+  // Get public system settings (theme config)
+  app.get('/api/system-settings', (_req, res) => {
+    res.json(db.getSystemSettings());
+  });
+
   // Submit new user donation (PENDING state)
   app.post('/api/donations', async (req, res) => {
     try {
@@ -79,6 +84,10 @@ async function startServer() {
         return res.status(400).json({ error: 'Valid donation amount is required' });
       }
 
+      if (!paymentReference || !paymentReference.trim()) {
+        return res.status(400).json({ error: 'Transaction ID / Reference code is required' });
+      }
+
       const donation = db.createDonation({
         donorName: donorName ? donorName.trim() : '',
         amount: numAmount,
@@ -89,6 +98,9 @@ async function startServer() {
         paymentProofUrl: paymentProofUrl || '',
         donationItemId: donationItemId || '',
       });
+
+      // Broadcast new pending donation to any connected client / dashboard
+      realtimeServer.broadcastDonationStatus(donation);
 
       // Send Telegram notification to admin bot
       const telegramSent = await sendTelegramNotification(donation);
@@ -435,18 +447,48 @@ async function startServer() {
     res.json(settings);
   });
 
-  app.post('/api/admin/telegram-settings', requireAdminAuth, (req: AuthenticatedRequest, res) => {
+  app.post('/api/admin/telegram-settings/test', requireAdminAuth, async (req: AuthenticatedRequest, res) => {
+    const { botToken, adminIds } = req.body;
+    if (!botToken || !adminIds || adminIds.length === 0) {
+      return res.status(400).json({ error: 'Missing parameters' });
+    }
+    try {
+      const sentCount = await sendTelegramTestMessage(botToken, adminIds);
+      if (sentCount > 0) {
+        res.json({ success: true, sentCount });
+      } else {
+        res.status(500).json({ error: 'Failed to send test message to any admin' });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Error sending test message' });
+    }
+  });
+
+  app.post('/api/admin/telegram-settings', requireAdminAuth, async (req: AuthenticatedRequest, res) => {
     const { botToken, adminIds, webhookUrl } = req.body;
+    
+    // Register webhook if token and webhook URL are provided
+    let isWebhookActive = false;
+    if (botToken && webhookUrl) {
+      try {
+        const fullWebhookUrl = `${webhookUrl.replace(/\/$/, '')}/api/telegram/webhook`;
+        isWebhookActive = await setTelegramWebhook(botToken, fullWebhookUrl);
+      } catch (err) {
+        console.error('Failed to set Telegram webhook:', err);
+      }
+    }
+
     const updated = db.updateTelegramSettings({
       botToken: botToken !== undefined ? botToken.trim() : undefined,
       adminIds: Array.isArray(adminIds) ? adminIds.map((s: string) => s.trim()).filter(Boolean) : undefined,
       webhookUrl: webhookUrl !== undefined ? webhookUrl.trim() : undefined,
+      isWebhookActive,
     });
 
     auditLogService.log({
       adminId: req.admin!.id,
       action: 'UPDATE_TELEGRAM_SETTINGS',
-      metadata: { adminCount: updated.adminIds?.length, hasToken: !!updated.botToken },
+      metadata: { adminCount: updated.adminIds?.length, hasToken: !!updated.botToken, webhookConfigured: isWebhookActive },
     });
 
     res.json({ success: true, settings: updated });

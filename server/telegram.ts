@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { db } from './db';
 import { realtimeServer } from './realtime';
 import { Donation } from '../src/types';
@@ -25,6 +27,9 @@ ${donation.amount.toLocaleString()} ${donation.currency}
 💳 *Payment:*
 ${escapeMarkdown(pm ? pm.name : donation.paymentMethodName || 'N/A')}
 
+🔢 *Transaction ID:*
+\`${escapeMarkdown(donation.paymentReference || (donation as any).transactionRef || 'N/A')}\`
+
 🎁 *Reward:*
 ${escapeMarkdown(item ? item.name : donation.donationItemName || 'Standard Donation')}
 
@@ -43,28 +48,102 @@ ${escapeMarkdown(donation.message || '(No message)')}
     ],
   };
 
+  const proofUrl = donation.paymentProofUrl || (donation as any).slipUrl;
   let sentCount = 0;
+
   for (const adminId of settings.adminIds) {
     try {
-      const res = await fetch(`https://api.telegram.org/bot${settings.botToken}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: adminId,
-          text,
-          parse_mode: 'Markdown',
-          reply_markup: inlineKeyboard,
-        }),
-      });
+      let sentSuccess = false;
 
-      const data = await res.json();
-      if (data.ok) {
-        sentCount++;
-      } else {
-        console.error(`[Telegram] Failed to send to admin ${adminId}:`, data.description);
+      // Try sending photo if payment proof screenshot exists
+      if (proofUrl) {
+        // Option A: Try public HTTP/HTTPS photo URL
+        const publicPhotoUrl = proofUrl.startsWith('http://') || proofUrl.startsWith('https://')
+          ? proofUrl
+          : (settings.webhookUrl ? `${settings.webhookUrl.replace(/\/$/, '')}/${proofUrl.replace(/^\//, '')}` : null);
+
+        if (publicPhotoUrl) {
+          try {
+            const res = await fetch(`https://api.telegram.org/bot${settings.botToken}/sendPhoto`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: adminId,
+                photo: publicPhotoUrl,
+                caption: text,
+                parse_mode: 'Markdown',
+                reply_markup: inlineKeyboard,
+              }),
+            });
+            const data = await res.json();
+            if (data.ok) {
+              sentSuccess = true;
+              sentCount++;
+            } else {
+              console.warn(`[Telegram] sendPhoto via URL failed for admin ${adminId}: ${data.description}`);
+            }
+          } catch (e) {
+            console.error(`[Telegram] sendPhoto URL error:`, e);
+          }
+        }
+
+        // Option B: Fallback to reading disk file and uploading via multipart FormData with explicit MIME type
+        if (!sentSuccess) {
+          const relPath = proofUrl.replace(/^\//, '');
+          const localFilePath = path.join(process.cwd(), relPath);
+          if (fs.existsSync(localFilePath)) {
+            const fileBuffer = fs.readFileSync(localFilePath);
+            const ext = path.extname(localFilePath).toLowerCase();
+            let mimeType = 'image/png';
+            if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
+            else if (ext === '.webp') mimeType = 'image/webp';
+            else if (ext === '.gif') mimeType = 'image/gif';
+
+            const blob = new Blob([fileBuffer], { type: mimeType });
+            const formData = new FormData();
+            formData.append('chat_id', adminId);
+            formData.append('photo', blob, path.basename(localFilePath));
+            formData.append('caption', text);
+            formData.append('parse_mode', 'Markdown');
+            formData.append('reply_markup', JSON.stringify(inlineKeyboard));
+
+            const res = await fetch(`https://api.telegram.org/bot${settings.botToken}/sendPhoto`, {
+              method: 'POST',
+              body: formData,
+            });
+            const data = await res.json();
+            if (data.ok) {
+              sentSuccess = true;
+              sentCount++;
+            } else {
+              console.error(`[Telegram] sendPhoto FormData error for admin ${adminId}:`, data.description);
+            }
+          }
+        }
+      }
+
+      // Fallback to text message if sendPhoto failed or no photo provided
+      if (!sentSuccess) {
+        const res = await fetch(`https://api.telegram.org/bot${settings.botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: adminId,
+            text,
+            parse_mode: 'Markdown',
+            reply_markup: inlineKeyboard,
+          }),
+        });
+
+        const data = await res.json();
+        if (data.ok) {
+          sentCount++;
+        } else {
+          console.error(`[Telegram] Failed to send to admin ${adminId}:`, data.description);
+        }
       }
     } catch (err) {
-      console.error(`[Telegram] Error sending to ${adminId}:`, err);
+      console.error(`[Telegram] Error sending notification to ${adminId}:`, err);
     }
   }
 
@@ -117,13 +196,21 @@ export async function handleTelegramWebhook(body: any) {
     const username = cb.from.username || cb.from.first_name || userId;
     const callbackData = cb.data as string; // e.g. "approve:don-123" or "decline:don-123"
 
-    // Verify authorized admin ID
+    // Verify authorized admin ID (match numeric ID, handle, or @handle case-insensitively)
     const isAuthorized =
-      settings.adminIds.length === 0 || // If no admin IDs configured, allow fallback or require match
-      settings.adminIds.includes(userId);
+      settings.adminIds.length === 0 ||
+      settings.adminIds.some((id) => {
+        const cleanId = id.trim().toLowerCase().replace(/^@/, '');
+        const cleanUser = String(username).toLowerCase().replace(/^@/, '');
+        return (
+          id.trim() === userId ||
+          cleanId === userId ||
+          (cleanUser && cleanId === cleanUser)
+        );
+      });
 
     if (!isAuthorized) {
-      console.warn(`[Telegram] Unauthorized callback attempt from user ID ${userId}`);
+      console.warn(`[Telegram] Unauthorized callback attempt from user ID ${userId} (${username})`);
       db.addAuditLog({
         telegramUserId: userId,
         action: 'TELEGRAM_UNAUTHORIZED_ATTEMPT',
@@ -133,7 +220,7 @@ export async function handleTelegramWebhook(body: any) {
         await answerCallbackQuery(
           settings.botToken,
           cb.id,
-          '❌ Unauthorized: Your Telegram ID is not in TELEGRAM_ADMIN_IDS'
+          '❌ Unauthorized: Your Telegram ID or username is not listed in Telegram Admin settings.'
         );
       }
       return { success: false, message: 'Unauthorized Telegram Admin ID' };
@@ -157,15 +244,19 @@ export async function handleTelegramWebhook(body: any) {
       return { success: false, message: msg };
     }
 
+    const isPhotoMsg = Boolean(cb.message && cb.message.photo && cb.message.photo.length > 0);
+    const baseText = cb.message ? (cb.message.caption || cb.message.text || '') : '';
+
     if (action === 'approve') {
       const updated = db.updateDonationStatus(donation.id, 'APPROVED', {
         telegramUserId: `${username} (${userId})`,
       });
 
       if (updated) {
-        // Trigger real-time event for OBS
+        // Broadcast real-time events for OBS and Website
         const event = db.addDonationEvent(updated);
         realtimeServer.broadcastDonationEvent(event);
+        realtimeServer.broadcastDonationStatus(updated);
 
         // Audit log
         db.addAuditLog({
@@ -175,20 +266,22 @@ export async function handleTelegramWebhook(body: any) {
           metadata: { publicId: updated.publicId, amount: updated.amount, adminUsername: username },
         });
 
-        // Edit Telegram message
+        // Edit Telegram message or photo caption
         if (settings.botToken && cb.message) {
           const updatedText =
-            cb.message.text +
+            baseText +
             `\n\n✅ *STATUS: APPROVED*\n👤 *Approved By:* Telegram Admin @${escapeMarkdown(
               username
             )} (ID: ${userId})\n⏰ *Time:* ${new Date().toLocaleTimeString()}`;
-          await editTelegramMessage(
+
+          await editTelegramMessageOrCaption(
             settings.botToken,
             cb.message.chat.id,
             cb.message.message_id,
-            updatedText
+            updatedText,
+            isPhotoMsg
           );
-          await answerCallbackQuery(settings.botToken, cb.id, '✅ Donation APPROVED & Broadcast to OBS!');
+          await answerCallbackQuery(settings.botToken, cb.id, '✅ Donation APPROVED & Synced to Website!');
         }
 
         return { success: true, action: 'APPROVED', donation: updated };
@@ -199,6 +292,9 @@ export async function handleTelegramWebhook(body: any) {
       });
 
       if (updated) {
+        // Broadcast status update for Website sync
+        realtimeServer.broadcastDonationStatus(updated);
+
         db.addAuditLog({
           telegramUserId: userId,
           action: 'TELEGRAM_DECLINE_DONATION',
@@ -208,17 +304,19 @@ export async function handleTelegramWebhook(body: any) {
 
         if (settings.botToken && cb.message) {
           const updatedText =
-            cb.message.text +
+            baseText +
             `\n\n❌ *STATUS: DECLINED*\n👤 *Declined By:* Telegram Admin @${escapeMarkdown(
               username
             )} (ID: ${userId})\n⏰ *Time:* ${new Date().toLocaleTimeString()}`;
-          await editTelegramMessage(
+
+          await editTelegramMessageOrCaption(
             settings.botToken,
             cb.message.chat.id,
             cb.message.message_id,
-            updatedText
+            updatedText,
+            isPhotoMsg
           );
-          await answerCallbackQuery(settings.botToken, cb.id, '❌ Donation DECLINED');
+          await answerCallbackQuery(settings.botToken, cb.id, '❌ Donation DECLINED & Synced to Website');
         }
 
         return { success: true, action: 'DECLINED', donation: updated };
@@ -241,29 +339,89 @@ async function answerCallbackQuery(botToken: string, callbackQueryId: string, te
   }
 }
 
-async function editTelegramMessage(
+async function editTelegramMessageOrCaption(
   botToken: string,
   chatId: number | string,
   messageId: number,
-  text: string
+  text: string,
+  isPhoto: boolean = false
 ) {
   try {
-    await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
+    const endpoint = isPhoto ? 'editMessageCaption' : 'editMessageText';
+    const bodyObj: any = {
+      chat_id: chatId,
+      message_id: messageId,
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: [] },
+    };
+    if (isPhoto) {
+      bodyObj.caption = text;
+    } else {
+      bodyObj.text = text;
+    }
+
+    const res = await fetch(`https://api.telegram.org/bot${botToken}/${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        message_id: messageId,
-        text,
-        parse_mode: 'Markdown',
-        reply_markup: { inline_keyboard: [] }, // Remove buttons once decided
-      }),
+      body: JSON.stringify(bodyObj),
     });
+
+    const data = await res.json();
+    if (!data.ok && !isPhoto) {
+      // Fallback try editMessageCaption if editMessageText failed
+      await fetch(`https://api.telegram.org/bot${botToken}/editMessageCaption`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          message_id: messageId,
+          caption: text,
+          parse_mode: 'Markdown',
+          reply_markup: { inline_keyboard: [] },
+        }),
+      });
+    }
   } catch (err) {
-    console.error('[Telegram] Error editing message:', err);
+    console.error('[Telegram] Error editing message or caption:', err);
   }
 }
 
 function escapeMarkdown(text: string): string {
   return text.replace(/[_*`\[\]]/g, '\\$&');
+}
+
+export async function setTelegramWebhook(botToken: string, webhookUrl: string, retries = 3): Promise<boolean> {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: webhookUrl,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        console.log(`[Telegram] Webhook successfully set to ${webhookUrl}`);
+        return true;
+      } else {
+        console.error(`[Telegram] Failed to set webhook (attempt ${attempt}):`, data.description);
+        if (data.error_code === 429 && attempt < retries) {
+          const retryAfter = data.parameters?.retry_after || 2;
+          console.log(`[Telegram] Retrying in ${retryAfter} seconds...`);
+          await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+          continue;
+        }
+        return false;
+      }
+    } catch (err) {
+      console.error(`[Telegram] Error setting webhook (attempt ${attempt}):`, err);
+      if (attempt < retries) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        continue;
+      }
+      return false;
+    }
+  }
+  return false;
 }

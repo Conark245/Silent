@@ -121,6 +121,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Telegram settings form
   const [telegramFormToken, setTelegramFormToken] = useState('');
   const [telegramFormAdminIds, setTelegramFormAdminIds] = useState('');
+  const [telegramFormWebhookUrl, setTelegramFormWebhookUrl] = useState('');
 
   // Preview / Test OBS alert state
   const [triggeringTest, setTriggeringTest] = useState(false);
@@ -196,6 +197,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   useEffect(() => {
     loadTabContent();
+
+    // Silent background auto-refresh every 2.5 seconds for live sync with Telegram
+    let interval: NodeJS.Timeout | null = null;
+    if (activeTab === 'donations' || activeTab === 'history' || activeTab === 'audit') {
+      interval = setInterval(() => {
+        loadTabContentSilently();
+      }, 2500);
+    }
+
+    // Realtime EventSource listener
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource('/api/overlay/events');
+      es.addEventListener('donation_approved', () => {
+        loadTabContentSilently();
+      });
+      es.addEventListener('donation_status_changed', () => {
+        loadTabContentSilently();
+      });
+    } catch (err) {
+      // EventSource fallback
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+      if (es) es.close();
+    };
   }, [activeTab, statusFilter]);
 
   const safeParseJson = async (res: Response) => {
@@ -204,6 +232,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       return await res.json();
     }
     return null;
+  };
+
+  const loadTabContentSilently = async () => {
+    try {
+      if (activeTab === 'donations') {
+        const res = await fetch(`/api/admin/donations?status=${statusFilter}`);
+        if (res.ok) {
+          const data = await safeParseJson(res);
+          if (data) setDonations(data);
+        }
+      } else if (activeTab === 'history') {
+        const res = await fetch(`/api/admin/donations`);
+        if (res.ok) {
+          const data = await safeParseJson(res);
+          if (data) {
+            setDonations(data.filter((d: any) => d.status === 'APPROVED' || d.status === 'DECLINED'));
+          }
+        }
+      } else if (activeTab === 'audit') {
+        const res = await fetch(`/api/admin/audit-logs`);
+        if (res.ok) {
+          const data = await safeParseJson(res);
+          if (data) setAuditLogs(data);
+        }
+      }
+    } catch (err) {
+      // ignore background refresh errors
+    }
   };
 
   const loadTabContent = async () => {
@@ -277,6 +333,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             setTelegramSettings(data);
             setTelegramFormToken(data.botToken || '');
             setTelegramFormAdminIds(data.adminIds ? data.adminIds.join(', ') : '');
+            setTelegramFormWebhookUrl(data.webhookUrl || window.location.origin);
           }
         }
       } else if (activeTab === 'audit') {
@@ -470,12 +527,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const res = await fetch('/api/admin/system-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ defaultSoundId: systemSettings.defaultSoundId }),
+        body: JSON.stringify({ 
+          defaultSoundId: systemSettings.defaultSoundId,
+          themeConfig: systemSettings.themeConfig,
+        }),
       });
       if (!res.ok) {
-        alert('Failed to save default sound settings');
+        alert('Failed to save system settings');
       } else {
-        alert('Default sound settings saved');
+        alert('System settings saved');
       }
     } catch (err) {
       alert('Error saving system settings');
@@ -522,18 +582,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         .map((s) => s.trim())
         .filter(Boolean);
 
+      const targetWebhookUrl = telegramFormWebhookUrl || window.location.origin;
+
       const res = await fetch('/api/admin/telegram-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           botToken: telegramFormToken,
           adminIds,
+          webhookUrl: targetWebhookUrl,
         }),
       });
 
       if (res.ok) {
-        alert('Telegram Bot Settings saved successfully');
+        alert('Telegram Bot Settings & Webhook saved successfully');
         loadTabContent();
+      } else {
+        const err = await res.json();
+        alert('Failed to save Telegram settings: ' + (err.error || 'Unknown error'));
       }
     } catch (err) {
       alert('Error saving Telegram settings');
@@ -704,17 +770,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </button>
           </nav>
 
-          <div className="p-4 border-t border-slate-300 dark:border-slate-700 mt-auto">
-            <div className="flex items-center gap-3 p-3 bg-slate-200 dark:bg-slate-800/50 rounded-xl border border-slate-300 dark:border-slate-700/50">
-              <div className="w-10 h-10 bg-emerald-500/20 rounded-full flex items-center justify-center">
-                <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></div>
-              </div>
-              <div>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Telegram Bot</p>
-                <p className="text-xs text-emerald-400 font-medium">Active & Synchronized</p>
+          {activeTab === 'telegram' && (
+            <div className="p-4 border-t border-slate-300 dark:border-slate-700 mt-auto">
+              <div className={`flex items-center gap-3 p-3 rounded-xl border ${telegramSettings?.botToken && telegramSettings?.isWebhookActive ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-rose-500/10 border-rose-500/30'}`}>
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${telegramSettings?.botToken && telegramSettings?.isWebhookActive ? 'bg-emerald-500/20' : 'bg-rose-500/20'}`}>
+                  <div className={`w-3 h-3 rounded-full ${telegramSettings?.botToken && telegramSettings?.isWebhookActive ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></div>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Telegram Webhook</p>
+                  <p className={`text-xs font-medium ${telegramSettings?.botToken && telegramSettings?.isWebhookActive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {telegramSettings?.botToken && telegramSettings?.isWebhookActive ? 'Active & Synchronized' : 'Not Connected'}
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </aside>
 
         {/* Content Area */}
@@ -1688,13 +1758,143 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           )}
 
+                    {/* TAB: THEME SETTINGS */}
+          {activeTab === 'theme' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Website Theme & Colors</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Customize the look and feel of the public donation page.
+                </p>
+              </div>
+
+              <div className="bg-white dark:bg-[#1E293B] border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-xl max-w-2xl">
+                <div className="space-y-5">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">Background Color</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        value={systemSettings?.themeConfig?.backgroundColor || '#f8fafc'}
+                        onChange={(e) => setSystemSettings({
+                          ...systemSettings,
+                          themeConfig: { ...systemSettings?.themeConfig, backgroundColor: e.target.value }
+                        })}
+                        className="w-12 h-12 rounded cursor-pointer border-0 p-0"
+                      />
+                      <input
+                        type="text"
+                        value={systemSettings?.themeConfig?.backgroundColor || '#f8fafc'}
+                        onChange={(e) => setSystemSettings({
+                          ...systemSettings,
+                          themeConfig: { ...systemSettings?.themeConfig, backgroundColor: e.target.value }
+                        })}
+                        className="flex-1 px-4 py-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">Card Background Color</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        value={systemSettings?.themeConfig?.cardBackgroundColor || '#ffffff'}
+                        onChange={(e) => setSystemSettings({
+                          ...systemSettings,
+                          themeConfig: { ...systemSettings?.themeConfig, cardBackgroundColor: e.target.value }
+                        })}
+                        className="w-12 h-12 rounded cursor-pointer border-0 p-0"
+                      />
+                      <input
+                        type="text"
+                        value={systemSettings?.themeConfig?.cardBackgroundColor || '#ffffff'}
+                        onChange={(e) => setSystemSettings({
+                          ...systemSettings,
+                          themeConfig: { ...systemSettings?.themeConfig, cardBackgroundColor: e.target.value }
+                        })}
+                        className="flex-1 px-4 py-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">Primary Color (Buttons, Highlights)</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        value={systemSettings?.themeConfig?.primaryColor || '#4f46e5'}
+                        onChange={(e) => setSystemSettings({
+                          ...systemSettings,
+                          themeConfig: { ...systemSettings?.themeConfig, primaryColor: e.target.value }
+                        })}
+                        className="w-12 h-12 rounded cursor-pointer border-0 p-0"
+                      />
+                      <input
+                        type="text"
+                        value={systemSettings?.themeConfig?.primaryColor || '#4f46e5'}
+                        onChange={(e) => setSystemSettings({
+                          ...systemSettings,
+                          themeConfig: { ...systemSettings?.themeConfig, primaryColor: e.target.value }
+                        })}
+                        className="flex-1 px-4 py-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">Text Color</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        value={systemSettings?.themeConfig?.textColor || '#0f172a'}
+                        onChange={(e) => setSystemSettings({
+                          ...systemSettings,
+                          themeConfig: { ...systemSettings?.themeConfig, textColor: e.target.value }
+                        })}
+                        className="w-12 h-12 rounded cursor-pointer border-0 p-0"
+                      />
+                      <input
+                        type="text"
+                        value={systemSettings?.themeConfig?.textColor || '#0f172a'}
+                        onChange={(e) => setSystemSettings({
+                          ...systemSettings,
+                          themeConfig: { ...systemSettings?.themeConfig, textColor: e.target.value }
+                        })}
+                        className="flex-1 px-4 py-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-slate-200 dark:border-slate-700 flex justify-end">
+                    <button
+                      onClick={handleSaveSystemSettings}
+                      disabled={isSavingSystemSettings}
+                      className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold transition"
+                    >
+                      {isSavingSystemSettings ? 'Saving...' : 'Save Theme'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* TAB 5: TELEGRAM BOT SETUP */}
           {activeTab === 'telegram' && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Telegram Bot Integration</h2>
+                <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center justify-between">
+                  <span>Telegram Bot Integration</span>
+                  {telegramSettings?.isWebhookActive && (
+                    <span className="px-3 py-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-full text-xs font-mono font-medium flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      Webhook Active
+                    </span>
+                  )}
+                </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Configure Telegram Bot token and allowed Admin User IDs for official approval
+                  Configure Telegram Bot token, Admin User IDs/Usernames, and Webhook URL for live Approve & Decline buttons.
                 </p>
               </div>
 
@@ -1720,27 +1920,42 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                 <div>
                   <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
-                    Allowed Admin Telegram IDs (Comma Separated)
+                    Allowed Admin Telegram IDs or Usernames (Comma Separated)
                   </label>
                   <input
                     type="text"
                     value={telegramFormAdminIds}
                     onChange={(e) => setTelegramFormAdminIds(e.target.value)}
-                    placeholder="123456789, 987654321"
+                    placeholder="123456789, @conarconar18, conarconar18"
                     className="w-full px-4 py-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono focus:outline-none focus:border-indigo-500"
                   />
                   <span className="text-[11px] text-slate-400 dark:text-slate-500 mt-1 block">
-                    Only messages from these Telegram User IDs will be authorized to approve or
-                    decline donations.
+                    Supports Telegram Chat IDs (e.g., 6013433377) or Telegram handles (e.g., @conarconar18). Leave empty or add your ID to authorize button actions.
                   </span>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
+                    Public Webhook Domain / URL
+                  </label>
+                  <input
+                    type="text"
+                    value={telegramFormWebhookUrl}
+                    onChange={(e) => setTelegramFormWebhookUrl(e.target.value)}
+                    placeholder="https://your-domain.com"
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono focus:outline-none focus:border-indigo-500"
+                  />
+                  <span className="text-[11px] text-slate-400 dark:text-slate-500 mt-1 block">
+                    Base URL where Telegram will post button callbacks (e.g., {window.location.origin}).
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-3 pt-2">
                   <button
                     type="submit"
                     className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition cursor-pointer shadow-md"
                   >
-                    Save Telegram Configuration
+                    Save & Register Webhook
                   </button>
                   <button
                     type="button"

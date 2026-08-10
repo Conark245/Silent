@@ -28,11 +28,38 @@ export const StatusModal: React.FC<StatusModalProps> = ({ donation: initialDonat
   };
 
   useEffect(() => {
-    // Poll every 3 seconds while pending
+    // Poll every 2 seconds while pending
+    let interval: NodeJS.Timeout | null = null;
     if (donation.status === 'PENDING') {
-      const interval = setInterval(fetchStatus, 3000);
-      return () => clearInterval(interval);
+      interval = setInterval(fetchStatus, 2000);
     }
+
+    // Realtime EventSource listener
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource('/api/overlay/events');
+      es.addEventListener('donation_status_changed', (e: any) => {
+        try {
+          const updatedDonation = JSON.parse(e.data);
+          if (updatedDonation.id === donation.id || updatedDonation.publicId === donation.publicId) {
+            setDonation(updatedDonation);
+          }
+        } catch (err) {}
+      });
+      es.addEventListener('donation_approved', (e: any) => {
+        try {
+          const evt = JSON.parse(e.data);
+          if (evt.donationId === donation.id || evt.payload?.donation?.id === donation.id) {
+            fetchStatus();
+          }
+        } catch (err) {}
+      });
+    } catch (err) {}
+
+    return () => {
+      if (interval) clearInterval(interval);
+      if (es) es.close();
+    };
   }, [donation.id, donation.status]);
 
   const copyId = () => {
@@ -75,9 +102,6 @@ export const StatusModal: React.FC<StatusModalProps> = ({ donation: initialDonat
           )}
 
           <h3 className="text-2xl font-bold tracking-tight text-slate-900">Donation Status</h3>
-          <p className="text-sm text-slate-500 mt-1">
-            Thank you, <span className="text-slate-800 font-semibold">{donation.donorName}</span>!
-          </p>
         </div>
 
         {/* Details Card */}
