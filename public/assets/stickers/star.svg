@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <radialGradient id="starGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFD700" stop-opacity="1" />
+      <stop offset="50%" stop-color="#FF8C00" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#FF4500" stop-opacity="0" />
+    </radialGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="6" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <style>
+    @keyframes pulseStar {
+      0% { transform: scale(0.92) rotate(0deg); }
+      50% { transform: scale(1.08) rotate(5deg); }
+      100% { transform: scale(0.92) rotate(0deg); }
+    }
+    @keyframes sparkle {
+      0%, 100% { opacity: 0.3; transform: scale(0.8); }
+      50% { opacity: 1; transform: scale(1.3); }
+    }
+    .star-main {
+      transform-origin: center;
+      animation: pulseStar 2s ease-in-out infinite;
+      filter: url(#glow);
+    }
+    .sparkle-1 { transform-origin: 30px 40px; animation: sparkle 1.5s ease-in-out infinite; }
+    .sparkle-2 { transform-origin: 170px 50px; animation: sparkle 1.8s ease-in-out 0.4s infinite; }
+    .sparkle-3 { transform-origin: 160px 150px; animation: sparkle 1.2s ease-in-out 0.8s infinite; }
+  </style>
+  <circle cx="100" cy="100" r="85" fill="url(#starGlow)" />
+  <g class="star-main">
+    <path d="M100 15 L125 70 L185 75 L140 115 L155 175 L100 142 L45 175 L60 115 L15 75 L75 70 Z" 
+          fill="#FFD700" stroke="#FFF8DC" stroke-width="4" />
+    <polygon points="100,35 118,75 160,78 128,106 138,148 100,125 62,148 72,106 40,78 82,75" fill="#FFE44D" />
+  </g>
+  <circle class="sparkle-1" cx="30" cy="40" r="6" fill="#FFF" />
+  <circle class="sparkle-2" cx="170" cy="50" r="8" fill="#FFD700" />
+  <circle class="sparkle-3" cx="160" cy="150" r="5" fill="#FFF" />
+</svg>

@@ -1,0 +1,6 @@
+{
+  "name": "OBS Live Donation & Overlay System",
+  "description": "Live Donation System with Telegram Bot Approval, Media/Sticker/Sound/Video management, and Real-Time OBS Browser Source Overlay.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="flameGrad" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#FF1493" />
+      <stop offset="40%" stop-color="#FF4500" />
+      <stop offset="80%" stop-color="#FFD700" />
+      <stop offset="100%" stop-color="#FFFFFF" />
+    </linearGradient>
+  </defs>
+  <style>
+    @keyframes flameFlicker {
+      0% { transform: scale(1) skewX(0deg); }
+      25% { transform: scale(1.05) skewX(-2deg); }
+      50% { transform: scale(0.98) skewX(2deg); }
+      75% { transform: scale(1.03) skewX(-1deg); }
+      100% { transform: scale(1) skewX(0deg); }
+    }
+    .flame {
+      transform-origin: bottom center;
+      animation: flameFlicker 1.2s ease-in-out infinite;
+    }
+  </style>
+  <g class="flame">
+    <path d="M100 20 C120 60 170 80 170 130 C170 170 140 190 100 190 C60 190 30 170 30 130 C30 80 80 60 100 20 Z" fill="url(#flameGrad)" />
+    <path d="M100 60 C115 85 145 100 145 135 C145 160 125 175 100 175 C75 175 55 160 55 135 C55 100 85 85 100 60 Z" fill="#FFD700" opacity="0.9" />
+    <path d="M100 100 C108 115 125 125 125 145 C125 160 112 168 100 168 C88 168 75 160 75 145 C75 125 92 115 100 100 Z" fill="#FFFFFF" />
+  </g>
+</svg>
