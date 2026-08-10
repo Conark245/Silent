@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Donation, DonationItem, MediaAsset, PaymentMethod, SystemSettings } from '../types';
 import { StatusModal } from './StatusModal';
-import { Sparkles, Copy, Upload, Check, ShieldAlert, Tv, ArrowRight, Volume2, VolumeX, Maximize2, X, Eye } from 'lucide-react';
+import { Sparkles, Copy, Upload, Check, ShieldAlert, Tv, ArrowRight, Volume2, VolumeX, Maximize2, X, Eye, Clock } from 'lucide-react';
+import { GreenScreenMedia } from './GreenScreenMedia';
 
 interface UserDonationPageProps {
   onNavigateAdmin: () => void;
@@ -39,12 +40,39 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
   const [submittedDonation, setSubmittedDonation] = useState<Donation | null>(null);
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
+  const [cooldownSeconds, setCooldownSeconds] = useState<number>(0);
 
   const presetAmounts = [1000, 3000, 5000, 10000, 20000];
 
   useEffect(() => {
     fetchInitialData();
+
+    // Check if user is currently in a 1-minute submission cooldown
+    const cooldownUntil = localStorage.getItem('donation_cooldown_until');
+    if (cooldownUntil) {
+      const remainingMs = parseInt(cooldownUntil, 10) - Date.now();
+      if (remainingMs > 0) {
+        setCooldownSeconds(Math.ceil(remainingMs / 1000));
+      } else {
+        localStorage.removeItem('donation_cooldown_until');
+      }
+    }
   }, []);
+
+  // Cooldown countdown interval
+  useEffect(() => {
+    if (cooldownSeconds <= 0) return;
+    const timer = setInterval(() => {
+      setCooldownSeconds((prev) => {
+        if (prev <= 1) {
+          localStorage.removeItem('donation_cooldown_until');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldownSeconds]);
 
   const fetchInitialData = async () => {
     try {
@@ -93,12 +121,22 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
     }
   };
 
+  const handleSelectRewardItem = (item: DonationItem) => {
+    setSelectedItemId(item.id);
+    if (amount < item.price) {
+      setAmount(item.price);
+      setCustomAmountInput(String(item.price));
+    }
+  };
+
   const handleCustomAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const valStr = e.target.value;
     setCustomAmountInput(valStr);
     const parsed = parseInt(valStr, 10);
     if (!isNaN(parsed) && parsed > 0) {
       setAmount(parsed);
+    } else {
+      setAmount(0);
     }
   };
 
@@ -145,9 +183,18 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
     e.preventDefault();
     setErrorMessage('');
 
+    if (cooldownSeconds > 0) {
+      setErrorMessage(`ကျေးဇူးပြု၍ နောက်ထပ် Donation မတင်မီ ခဏစောင့်ပေးပါ (${cooldownSeconds} စက္ကန့် ကျန်သေးသည်)`);
+      return;
+    }
 
     if (!amount || amount <= 0) {
       setErrorMessage('Please enter a valid donation amount.');
+      return;
+    }
+
+    if (selectedItem && amount < selectedItem.price) {
+      setErrorMessage(`လှူဒါန်းငွေပမာဏသည် ရွေးချယ်ထားသော Reward (${selectedItem.name} - ${selectedItem.price.toLocaleString()} MMK) ၏ ဈေးနှုန်းထက် နည်းနေပါသည်။ ကျေးဇူးပြု၍ အနည်းဆုံး ${selectedItem.price.toLocaleString()} MMK ထည့်သွင်းပေးပါ။`);
       return;
     }
 
@@ -186,8 +233,13 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
       if (res.ok) {
         const data = await res.json();
         setSubmittedDonation(data.donation);
+
+        // Start 1-minute (60 seconds) cooldown
+        const cooldownEnd = Date.now() + 60000;
+        localStorage.setItem('donation_cooldown_until', cooldownEnd.toString());
+        setCooldownSeconds(60);
+
         // Reset form
-        
         setMessage('');
         setPaymentReference('');
         setPaymentProofUrl('');
@@ -302,12 +354,28 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
                 <span className="text-xs text-slate-500 block mb-1">Custom Amount (MMK)</span>
                 <input
                   type="number"
-                  min="100"
+                  min={selectedItem ? selectedItem.price : 100}
                   step="100"
                   value={customAmountInput}
                   onChange={handleCustomAmountChange}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600 text-sm font-mono"
+                  className={`w-full px-4 py-2.5 bg-slate-50 border rounded-xl text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none text-sm font-mono transition ${
+                    selectedItem && amount < selectedItem.price
+                      ? 'border-rose-400 focus:ring-2 focus:ring-rose-500 bg-rose-50/30'
+                      : 'border-slate-300 focus:ring-2 focus:ring-indigo-600'
+                  }`}
                 />
+
+                {selectedItem && amount < selectedItem.price && (
+                  <p className="text-xs text-rose-600 font-medium mt-1.5 flex items-center gap-1">
+                    <span>⚠️ ရွေးချယ်ထားသော Reward ({selectedItem.name}) ၏ ဈေးနှုန်း {selectedItem.price.toLocaleString()} MMK ထက် နည်း၍ မရပါ (အနည်းဆုံး {selectedItem.price.toLocaleString()} MMK ထည့်ပေးပါ)</span>
+                  </p>
+                )}
+
+                {selectedItem && amount >= selectedItem.price && (
+                  <span className="text-[11px] text-slate-500 block mt-1">
+                    💡 Selected Reward: <strong className="text-slate-800">{selectedItem.name}</strong> (Minimum required: <span className="font-mono text-emerald-600 font-bold">{selectedItem.price.toLocaleString()} MMK</span>)
+                  </span>
+                )}
               </div>
 
               {/* Donation Items / Rewards */}
@@ -322,7 +390,7 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
                     {donationItems.map((item) => (
                       <div
                         key={item.id}
-                        onClick={() => setSelectedItemId(item.id)}
+                        onClick={() => handleSelectRewardItem(item)}
                         className={`p-3.5 rounded-xl border cursor-pointer transition flex items-start gap-3 ${
                           selectedItemId === item.id
                             ? 'bg-indigo-50 border-indigo-500 text-indigo-900 shadow-sm'
@@ -397,8 +465,10 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
                   {/* Sticker / Video / Media Icon */}
                   <div className="my-2 flex justify-center items-center min-h-[80px]">
                     {selectedVideo?.url ? (
-                      <video
+                      <GreenScreenMedia
                         src={selectedVideo.url}
+                        type="video"
+                        isGreenScreen={Boolean(selectedVideo.isGreenScreen || selectedItem?.isGreenScreen)}
                         autoPlay
                         loop
                         muted
@@ -406,10 +476,12 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
                         className="max-h-24 max-w-full rounded-xl border border-slate-800 object-contain shadow-md"
                       />
                     ) : selectedSticker?.url ? (
-                      <img
+                      <GreenScreenMedia
                         src={selectedSticker.url}
+                        type="sticker"
+                        isGreenScreen={Boolean(selectedSticker.isGreenScreen || selectedItem?.isGreenScreen)}
                         alt={selectedSticker.name}
-                        className="w-20 h-20 object-contain animate-bounce duration-1000 filter drop-shadow-[0_5px_15px_rgba(255,215,0,0.5)]"
+                        className="w-20 h-20 object-contain filter drop-shadow-[0_5px_15px_rgba(255,215,0,0.5)]"
                       />
                     ) : (
                       <div className="w-16 h-16 rounded-full bg-amber-500/10 border-2 border-amber-400/50 flex items-center justify-center text-amber-400 text-2xl font-black shadow-inner animate-pulse">
@@ -594,16 +666,31 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
               </div>
             </div>
 
+            {/* Cooldown Warning Notice */}
+            {cooldownSeconds > 0 && (
+              <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center gap-3 text-amber-700 dark:text-amber-300 text-xs font-medium animate-fade-in">
+                <Clock className="w-5 h-5 shrink-0 text-amber-500 animate-pulse" />
+                <div>
+                  Donation တင်ပြီးပါပြီ။ Duplicate မဖြစ်စေရန် နောက်ထပ် Donation မတင်မီ <strong>1 မိနစ်</strong> စောင့်ဆိုင်းရန် လိုအပ်ပါသည်။ (<strong>{cooldownSeconds} စက္ကန့်</strong> ကျန်ပါသေးသည်)
+                </div>
+              </div>
+            )}
+
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={isSubmitting}
-              className="w-full py-3.5 px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm rounded-xl shadow-md flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50"
+              disabled={isSubmitting || cooldownSeconds > 0}
+              className="w-full py-3.5 px-6 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 dark:disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-semibold text-sm rounded-xl shadow-md flex items-center justify-center gap-2 transition cursor-pointer"
             >
               {isSubmitting ? (
                 <>
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                   <span>Submitting Donation...</span>
+                </>
+              ) : cooldownSeconds > 0 ? (
+                <>
+                  <Clock className="w-5 h-5 animate-pulse" />
+                  <span>Please wait {cooldownSeconds}s before submitting again</span>
                 </>
               ) : (
                 <>
@@ -643,8 +730,10 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
               {/* Media Section */}
               <div className="my-4 flex justify-center items-center min-h-[140px]">
                 {selectedVideo?.url ? (
-                  <video
+                  <GreenScreenMedia
                     src={selectedVideo.url}
+                    type="video"
+                    isGreenScreen={Boolean(selectedVideo.isGreenScreen || selectedItem?.isGreenScreen)}
                     autoPlay
                     loop
                     muted
@@ -652,10 +741,12 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
                     className="max-h-48 max-w-full rounded-2xl border border-slate-800 shadow-xl object-contain"
                   />
                 ) : selectedSticker?.url ? (
-                  <img
+                  <GreenScreenMedia
                     src={selectedSticker.url}
+                    type="sticker"
+                    isGreenScreen={Boolean(selectedSticker.isGreenScreen || selectedItem?.isGreenScreen)}
                     alt={selectedSticker.name}
-                    className="w-36 h-36 object-contain animate-bounce duration-1000 filter drop-shadow-[0_10px_25px_rgba(255,215,0,0.5)]"
+                    className="w-36 h-36 object-contain filter drop-shadow-[0_10px_25px_rgba(255,215,0,0.5)]"
                   />
                 ) : (
                   <div className="w-28 h-28 rounded-full bg-amber-500/10 border-2 border-amber-400/50 flex items-center justify-center text-amber-400 text-4xl font-black shadow-inner animate-pulse">

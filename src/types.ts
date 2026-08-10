@@ -24,6 +24,7 @@ export interface DonationItem {
   stickerId?: string;
   soundId?: string;
   videoId?: string;
+  isGreenScreen?: boolean;
   displayDuration: number; // in seconds
   enabled: boolean;
   sortOrder: number;
@@ -36,6 +37,7 @@ export interface MediaAsset {
   url: string;
   duration?: number; // duration in seconds
   volume?: number; // 0.0 - 1.0
+  isGreenScreen?: boolean;
   enabled: boolean;
   createdAt: string;
 }
@@ -92,6 +94,14 @@ export interface TelegramSettings {
   adminIds: string[]; // e.g. ["123456789"]
   webhookUrl: string;
   isWebhookActive: boolean;
+}
+
+export interface CloudinarySettings {
+  cloudName: string;
+  apiKey: string;
+  apiSecret: string;
+  folder?: string;
+  enabled?: boolean;
 }
 
 export interface SystemSettings {

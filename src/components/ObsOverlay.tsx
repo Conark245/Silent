@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Donation, DonationEvent } from '../types';
 import { Volume2, VolumeX, Sparkles, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { GreenScreenMedia } from './GreenScreenMedia';
 
 export const ObsOverlay: React.FC = () => {
   const [queue, setQueue] = useState<DonationEvent[]>([]);
@@ -220,31 +221,33 @@ export const ObsOverlay: React.FC = () => {
               {/* Sticker / Video Media Section */}
               <div className="my-4 flex justify-center items-center min-h-[160px]">
                 {video?.url ? (
-                  <video
-                    ref={(el) => {
-                      videoRef.current = el;
-                      if (el && video) {
-                        el.volume = video.volume ?? 0.8;
-                      }
-                    }}
+                  <GreenScreenMedia
                     src={video.url}
-                    autoPlay
-                    playsInline
+                    type="video"
+                    isGreenScreen={Boolean(video.isGreenScreen || item?.isGreenScreen)}
+                    volume={video.volume ?? 0.8}
                     muted={muted}
+                    autoPlay={true}
+                    playsInline={true}
                     className="max-h-56 max-w-full rounded-2xl border border-slate-800 shadow-xl object-contain"
                   />
                 ) : sticker?.url ? (
-                  <motion.img
+                  <motion.div
                     initial={{ scale: 0.4, rotate: -10 }}
                     animate={{ scale: [1, 1.08, 1], rotate: [0, 4, -4, 0] }}
                     transition={{
                       scale: { duration: 0.4 / speed, type: 'spring', stiffness: 300 },
                       rotate: { duration: 2.2 / speed, repeat: Infinity, ease: 'easeInOut' },
                     }}
-                    src={sticker.url}
-                    alt={sticker.name}
-                    className="w-44 h-44 object-contain filter drop-shadow-[0_10px_25px_rgba(255,215,0,0.5)]"
-                  />
+                  >
+                    <GreenScreenMedia
+                      src={sticker.url}
+                      type="sticker"
+                      isGreenScreen={Boolean(sticker.isGreenScreen || item?.isGreenScreen)}
+                      alt={sticker.name}
+                      className="w-44 h-44 object-contain filter drop-shadow-[0_10px_25px_rgba(255,215,0,0.5)]"
+                    />
+                  </motion.div>
                 ) : (
                   <motion.div
                     animate={{ scale: [1, 1.15, 1], rotate: [0, 12, -12, 0] }}

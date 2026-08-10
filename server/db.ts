@@ -2,7 +2,6 @@ import mongoose from 'mongoose';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 import {
   AdminUser,
   Donation,
@@ -12,6 +11,7 @@ import {
   PaymentMethod,
   AuditLog,
   TelegramSettings,
+  CloudinarySettings,
   SystemSettings,
 } from '../src/types';
 import {
@@ -23,6 +23,7 @@ import {
   DonationEventModel,
   AuditLogModel,
   TelegramSettingsModel,
+  CloudinarySettingsModel,
   SystemSettingsModel,
 } from './models';
 
@@ -54,6 +55,14 @@ const initialTelegramSettings: TelegramSettings = {
   isWebhookActive: false,
 };
 
+const initialCloudinarySettings: CloudinarySettings = {
+  cloudName: process.env.CLOUDINARY_CLOUD_NAME || '',
+  apiKey: process.env.CLOUDINARY_API_KEY || '',
+  apiSecret: process.env.CLOUDINARY_API_SECRET || '',
+  folder: 'payment_proofs',
+  enabled: true,
+};
+
 class MongoDatabase {
   private cache = {
     admins: initialAdmins as (AdminUser & { passwordHash: string })[],
@@ -64,11 +73,12 @@ class MongoDatabase {
     donation_events: [] as DonationEvent[],
     audit_logs: [] as AuditLog[],
     telegram_settings: { ...initialTelegramSettings },
+    cloudinary_settings: { ...initialCloudinarySettings },
     system_settings: { defaultSoundId: '' } as SystemSettings,
   };
 
   private isConnected = false;
-  private backupFilePath = path.join(os.tmpdir(), 'obs_db_backup.json');
+  private backupFilePath = path.join(process.cwd(), 'uploads', 'db_backup.json');
 
   constructor() {
     this.loadFromLocalBackup();
@@ -89,6 +99,7 @@ class MongoDatabase {
           if (Array.isArray(data.donation_events)) this.cache.donation_events = data.donation_events;
           if (Array.isArray(data.audit_logs)) this.cache.audit_logs = data.audit_logs;
           if (data.telegram_settings) this.cache.telegram_settings = { ...this.cache.telegram_settings, ...data.telegram_settings };
+          if (data.cloudinary_settings) this.cache.cloudinary_settings = { ...this.cache.cloudinary_settings, ...data.cloudinary_settings };
           if (data.system_settings) this.cache.system_settings = { ...this.cache.system_settings, ...data.system_settings };
           console.log('[Database] Restored state from local disk backup');
         }
@@ -267,6 +278,18 @@ class MongoDatabase {
           adminIds: tgSettings.adminIds,
           webhookUrl: tgSettings.webhookUrl,
           isWebhookActive: tgSettings.isWebhookActive,
+        };
+      }
+
+      // Cloudinary Settings
+      const cldSettings: any = await CloudinarySettingsModel.findOne().lean();
+      if (cldSettings) {
+        this.cache.cloudinary_settings = {
+          cloudName: cldSettings.cloudName || '',
+          apiKey: cldSettings.apiKey || '',
+          apiSecret: cldSettings.apiSecret || '',
+          folder: cldSettings.folder || 'payment_proofs',
+          enabled: cldSettings.enabled !== false,
         };
       }
 
@@ -615,22 +638,52 @@ class MongoDatabase {
   // --- TELEGRAM SETTINGS ---
   getTelegramSettings() {
     const envToken = process.env.TELEGRAM_BOT_TOKEN;
-    const envAdminIds = (process.env.TELEGRAM_ADMIN_IDS || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const envAdminIds = (process.env.TELEGRAM_ADMIN_IDS || '')
+      .split(/[\n,;\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const dbAdminIds = this.cache.telegram_settings.adminIds || [];
+    
+    // Merge envAdminIds and dbAdminIds ensuring no duplicates
+    const mergedAdminIds = Array.from(new Set([...dbAdminIds, ...envAdminIds]));
+
     return {
       botToken: envToken || this.cache.telegram_settings.botToken,
-      adminIds: envAdminIds.length > 0 ? envAdminIds : this.cache.telegram_settings.adminIds,
+      adminIds: mergedAdminIds,
       webhookUrl: this.cache.telegram_settings.webhookUrl || '',
       isWebhookActive: this.cache.telegram_settings.isWebhookActive || false,
     };
   }
   updateTelegramSettings(settings: Partial<TelegramSettings>) {
     this.cache.telegram_settings = { ...this.cache.telegram_settings, ...settings };
+    this.saveToLocalBackup();
     if (this.isConnected) {
       (TelegramSettingsModel as any).updateOne({}, this.cache.telegram_settings, { upsert: true }).catch((err: any) =>
         console.error('[MongoDB] TelegramSettings update error:', err)
       );
     }
     return this.cache.telegram_settings;
+  }
+
+  // --- CLOUDINARY SETTINGS ---
+  getCloudinarySettings(): CloudinarySettings {
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME || this.cache.cloudinary_settings.cloudName || '';
+    const apiKey = process.env.CLOUDINARY_API_KEY || this.cache.cloudinary_settings.apiKey || '';
+    const apiSecret = process.env.CLOUDINARY_API_SECRET || this.cache.cloudinary_settings.apiSecret || '';
+    const folder = this.cache.cloudinary_settings.folder || 'payment_proofs';
+    const enabled = this.cache.cloudinary_settings.enabled !== false;
+    return { cloudName, apiKey, apiSecret, folder, enabled };
+  }
+
+  updateCloudinarySettings(settings: Partial<CloudinarySettings>) {
+    this.cache.cloudinary_settings = { ...this.cache.cloudinary_settings, ...settings };
+    this.saveToLocalBackup();
+    if (this.isConnected) {
+      (CloudinarySettingsModel as any).updateOne({}, this.cache.cloudinary_settings, { upsert: true }).catch((err: any) =>
+        console.error('[MongoDB] CloudinarySettings update error:', err)
+      );
+    }
+    return this.cache.cloudinary_settings;
   }
 
   // --- AUDIT LOGS ---

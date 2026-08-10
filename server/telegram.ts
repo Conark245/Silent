@@ -16,28 +16,15 @@ export async function sendTelegramNotification(donation: Donation) {
   const item = donation.donationItemId ? db.getDonationItemById(donation.donationItemId) : null;
   const pm = donation.paymentMethodId ? db.getPaymentMethodById(donation.paymentMethodId) : null;
 
-  const text = `🔔 *NEW DONATION*
+  const text = `🔔 *NEW DONATION RECEIVED*
 
-👤 *Donor:*
-${escapeMarkdown(donation.donorName)}
-
-💰 *Amount:*
-${donation.amount.toLocaleString()} ${donation.currency}
-
-💳 *Payment:*
-${escapeMarkdown(pm ? pm.name : donation.paymentMethodName || 'N/A')}
-
-🔢 *Transaction ID:*
-\`${escapeMarkdown(donation.paymentReference || (donation as any).transactionRef || 'N/A')}\`
-
-🎁 *Reward:*
-${escapeMarkdown(item ? item.name : donation.donationItemName || 'Standard Donation')}
-
-💬 *Message:*
-${escapeMarkdown(donation.message || '(No message)')}
-
-🆔 *Donation ID:*
-\`${donation.publicId}\``;
+👤 *Donor:* ${escapeMarkdown(donation.donorName ? donation.donorName.trim() : 'Anonymous')}
+💰 *Amount:* *${donation.amount.toLocaleString()} ${donation.currency}*
+💳 *Payment:* ${escapeMarkdown(pm ? pm.name : donation.paymentMethodName || 'N/A')}
+🔢 *Transaction ID:* \`${escapeMarkdown(donation.paymentReference || (donation as any).transactionRef || 'N/A')}\`
+🎁 *Reward:* ${escapeMarkdown(item ? item.name : donation.donationItemName || 'Standard Donation')}
+💬 *Message:* ${escapeMarkdown(donation.message ? donation.message.trim() : '(No message)')}
+🆔 *Donation ID:* \`${donation.publicId}\``;
 
   const inlineKeyboard = {
     inline_keyboard: [
@@ -57,23 +44,55 @@ ${escapeMarkdown(donation.message || '(No message)')}
 
       // Try sending photo if payment proof screenshot exists
       if (proofUrl) {
-        // Option A: Try public HTTP/HTTPS photo URL
-        const publicPhotoUrl = proofUrl.startsWith('http://') || proofUrl.startsWith('https://')
-          ? proofUrl
-          : (settings.webhookUrl ? `${settings.webhookUrl.replace(/\/$/, '')}/${proofUrl.replace(/^\//, '')}` : null);
+        // Case A: Base64 image
+        if (proofUrl.startsWith('data:image/')) {
+          try {
+            const matches = proofUrl.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+            if (matches) {
+              const mimeType = matches[1];
+              const base64Data = matches[2];
+              const buffer = Buffer.from(base64Data, 'base64');
+              const ext = mimeType.split('/')[1] || 'png';
+              const blob = new Blob([buffer], { type: mimeType });
+              const formData = new FormData();
+              formData.append('chat_id', adminId);
+              formData.append('photo', blob, `proof.${ext}`);
+              formData.append('caption', text);
+              formData.append('parse_mode', 'Markdown');
+              formData.append('reply_markup', JSON.stringify(inlineKeyboard));
 
-        if (publicPhotoUrl) {
+              const res = await fetch(`https://api.telegram.org/bot${settings.botToken}/sendPhoto`, {
+                method: 'POST',
+                body: formData,
+                signal: AbortSignal.timeout(15000),
+              });
+              const data = await res.json();
+              if (data.ok) {
+                sentSuccess = true;
+                sentCount++;
+              } else {
+                console.warn(`[Telegram] sendPhoto via base64 failed for admin ${adminId}: ${data.description}`);
+              }
+            }
+          } catch (e) {
+            console.error(`[Telegram] sendPhoto base64 error for admin ${adminId}:`, e);
+          }
+        }
+
+        // Case B: Public HTTP/HTTPS URL
+        if (!sentSuccess && (proofUrl.startsWith('http://') || proofUrl.startsWith('https://'))) {
           try {
             const res = await fetch(`https://api.telegram.org/bot${settings.botToken}/sendPhoto`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 chat_id: adminId,
-                photo: publicPhotoUrl,
+                photo: proofUrl,
                 caption: text,
                 parse_mode: 'Markdown',
                 reply_markup: inlineKeyboard,
               }),
+              signal: AbortSignal.timeout(15000),
             });
             const data = await res.json();
             if (data.ok) {
@@ -83,40 +102,69 @@ ${escapeMarkdown(donation.message || '(No message)')}
               console.warn(`[Telegram] sendPhoto via URL failed for admin ${adminId}: ${data.description}`);
             }
           } catch (e) {
-            console.error(`[Telegram] sendPhoto URL error:`, e);
+            console.error(`[Telegram] sendPhoto URL error for admin ${adminId}:`, e);
           }
         }
 
-        // Option B: Fallback to reading disk file and uploading via multipart FormData with explicit MIME type
-        if (!sentSuccess) {
+        // Case C: Local disk file
+        if (!sentSuccess && !proofUrl.startsWith('data:image/')) {
           const relPath = proofUrl.replace(/^\//, '');
           const localFilePath = path.join(process.cwd(), relPath);
           if (fs.existsSync(localFilePath)) {
-            const fileBuffer = fs.readFileSync(localFilePath);
-            const ext = path.extname(localFilePath).toLowerCase();
-            let mimeType = 'image/png';
-            if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
-            else if (ext === '.webp') mimeType = 'image/webp';
-            else if (ext === '.gif') mimeType = 'image/gif';
+            try {
+              const fileBuffer = fs.readFileSync(localFilePath);
+              const ext = path.extname(localFilePath).toLowerCase();
+              let mimeType = 'image/png';
+              if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
+              else if (ext === '.webp') mimeType = 'image/webp';
+              else if (ext === '.gif') mimeType = 'image/gif';
 
-            const blob = new Blob([fileBuffer], { type: mimeType });
-            const formData = new FormData();
-            formData.append('chat_id', adminId);
-            formData.append('photo', blob, path.basename(localFilePath));
-            formData.append('caption', text);
-            formData.append('parse_mode', 'Markdown');
-            formData.append('reply_markup', JSON.stringify(inlineKeyboard));
+              const blob = new Blob([fileBuffer], { type: mimeType });
+              const formData = new FormData();
+              formData.append('chat_id', adminId);
+              formData.append('photo', blob, path.basename(localFilePath));
+              formData.append('caption', text);
+              formData.append('parse_mode', 'Markdown');
+              formData.append('reply_markup', JSON.stringify(inlineKeyboard));
 
-            const res = await fetch(`https://api.telegram.org/bot${settings.botToken}/sendPhoto`, {
-              method: 'POST',
-              body: formData,
-            });
-            const data = await res.json();
-            if (data.ok) {
-              sentSuccess = true;
-              sentCount++;
-            } else {
-              console.error(`[Telegram] sendPhoto FormData error for admin ${adminId}:`, data.description);
+              const res = await fetch(`https://api.telegram.org/bot${settings.botToken}/sendPhoto`, {
+                method: 'POST',
+                body: formData,
+                signal: AbortSignal.timeout(15000),
+              });
+              const data = await res.json();
+              if (data.ok) {
+                sentSuccess = true;
+                sentCount++;
+              } else {
+                console.error(`[Telegram] sendPhoto FormData error for admin ${adminId}:`, data.description);
+              }
+            } catch (e) {
+              console.error(`[Telegram] sendPhoto local file error for admin ${adminId}:`, e);
+            }
+          } else if (settings.webhookUrl) {
+            // Case D: Try constructing public URL if webhookUrl is present
+            const fullUrl = `${settings.webhookUrl.replace(/\/$/, '')}/${relPath}`;
+            try {
+              const res = await fetch(`https://api.telegram.org/bot${settings.botToken}/sendPhoto`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  chat_id: adminId,
+                  photo: fullUrl,
+                  caption: text,
+                  parse_mode: 'Markdown',
+                  reply_markup: inlineKeyboard,
+                }),
+                signal: AbortSignal.timeout(15000),
+              });
+              const data = await res.json();
+              if (data.ok) {
+                sentSuccess = true;
+                sentCount++;
+              }
+            } catch (e) {
+              // Ignore fallback error
             }
           }
         }
@@ -133,6 +181,7 @@ ${escapeMarkdown(donation.message || '(No message)')}
             parse_mode: 'Markdown',
             reply_markup: inlineKeyboard,
           }),
+          signal: AbortSignal.timeout(15000),
         });
 
         const data = await res.json();
@@ -166,6 +215,7 @@ If you received this, your bot token and admin IDs are configured correctly!`;
           text,
           parse_mode: 'Markdown',
         }),
+        signal: AbortSignal.timeout(15000),
       });
       const data = await res.json();
       if (data.ok) {
@@ -333,6 +383,7 @@ async function answerCallbackQuery(botToken: string, callbackQueryId: string, te
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ callback_query_id: callbackQueryId, text, show_alert: true }),
+      signal: AbortSignal.timeout(10000),
     });
   } catch (err) {
     console.error('[Telegram] Error answering callback query:', err);
@@ -364,6 +415,7 @@ async function editTelegramMessageOrCaption(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(bodyObj),
+      signal: AbortSignal.timeout(15000),
     });
 
     const data = await res.json();
@@ -379,6 +431,7 @@ async function editTelegramMessageOrCaption(
           parse_mode: 'Markdown',
           reply_markup: { inline_keyboard: [] },
         }),
+        signal: AbortSignal.timeout(15000),
       });
     }
   } catch (err) {
@@ -399,6 +452,7 @@ export async function setTelegramWebhook(botToken: string, webhookUrl: string, r
         body: JSON.stringify({
           url: webhookUrl,
         }),
+        signal: AbortSignal.timeout(15000),
       });
       const data = await res.json();
       if (data.ok) {

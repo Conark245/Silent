@@ -14,7 +14,8 @@ import {
 } from './server/auth';
 import { sendTelegramNotification, handleTelegramWebhook, sendTelegramTestMessage, setTelegramWebhook } from './server/telegram';
 import { realtimeServer } from './server/realtime';
-import { uploadMiddleware, saveUploadedFile } from './server/uploads';
+import { uploadMiddleware } from './server/uploads';
+import { isCloudinaryConfigured, uploadToCloudinary } from './server/cloudinary';
 import { Donation } from './src/types';
 import { auditLogService } from './server/audit';
 
@@ -26,11 +27,12 @@ async function startServer() {
   app.use(express.urlencoded({ extended: true, limit: '25mb' }));
   app.use(cookieParser());
 
-  // Serve static uploads if directory exists (legacy support without crashing)
+  // Serve uploaded files statically
   const uploadsDir = path.join(process.cwd(), 'uploads');
-  if (fs.existsSync(uploadsDir)) {
-    app.use('/uploads', express.static(uploadsDir));
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
   }
+  app.use('/uploads', express.static(uploadsDir));
 
   // Serve public static assets
   const publicDir = path.join(process.cwd(), 'public');
@@ -81,6 +83,15 @@ async function startServer() {
       const numAmount = Number(amount);
       if (!numAmount || numAmount <= 0) {
         return res.status(400).json({ error: 'Valid donation amount is required' });
+      }
+
+      if (donationItemId) {
+        const item = db.getDonationItemById(donationItemId);
+        if (item && numAmount < item.price) {
+          return res.status(400).json({
+            error: `Donation amount (${numAmount.toLocaleString()} MMK) cannot be less than selected reward price (${item.price.toLocaleString()} MMK)`,
+          });
+        }
       }
 
       if (!paymentReference || !paymentReference.trim()) {
@@ -135,11 +146,28 @@ async function startServer() {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
+
     try {
-      const fileUrl = await saveUploadedFile(req.file);
-      res.json({ success: true, url: fileUrl });
+      if (isCloudinaryConfigured()) {
+        const cldResult = await uploadToCloudinary(req.file.path, req.file.originalname);
+        if (cldResult.success && cldResult.url) {
+          try {
+            if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+          } catch (e) {
+            console.error('Error cleaning up temp file:', e);
+          }
+          return res.json({ success: true, url: cldResult.url, provider: 'cloudinary' });
+        } else {
+          console.warn('[UploadProof] Cloudinary upload failed, falling back to local:', cldResult.error);
+        }
+      }
+
+      const fileUrl = `/uploads/${req.file.filename}`;
+      res.json({ success: true, url: fileUrl, provider: 'local' });
     } catch (err: any) {
-      res.status(500).json({ error: err.message || 'File upload failed' });
+      console.error('[UploadProof] Error:', err);
+      const fileUrl = `/uploads/${req.file.filename}`;
+      res.json({ success: true, url: fileUrl, provider: 'local' });
     }
   });
 
@@ -497,6 +525,31 @@ async function startServer() {
     res.json({ success: true, settings: updated });
   });
 
+  // CLOUDINARY SETTINGS
+  app.get('/api/admin/cloudinary-settings', requireAdminAuth, (_req, res) => {
+    const settings = db.getCloudinarySettings();
+    res.json(settings);
+  });
+
+  app.post('/api/admin/cloudinary-settings', requireAdminAuth, (req: AuthenticatedRequest, res) => {
+    const { cloudName, apiKey, apiSecret, folder, enabled } = req.body;
+    const updated = db.updateCloudinarySettings({
+      cloudName: cloudName !== undefined ? cloudName.trim() : undefined,
+      apiKey: apiKey !== undefined ? apiKey.trim() : undefined,
+      apiSecret: apiSecret !== undefined ? apiSecret.trim() : undefined,
+      folder: folder !== undefined ? folder.trim() : undefined,
+      enabled: enabled !== undefined ? Boolean(enabled) : true,
+    });
+
+    auditLogService.log({
+      adminId: req.admin!.id,
+      action: 'UPDATE_CLOUDINARY_SETTINGS',
+      metadata: { cloudName: updated.cloudName, enabled: updated.enabled },
+    });
+
+    res.json({ success: true, settings: updated });
+  });
+
   // PAYMENT METHODS CRUD
   app.get('/api/admin/payment-methods', requireAdminAuth, (_req, res) => {
     res.json(db.getPaymentMethods(true));
@@ -564,7 +617,7 @@ async function startServer() {
   });
 
   app.post('/api/admin/donation-items', requireAdminAuth, (req: AuthenticatedRequest, res) => {
-    const { name, price, currency, description, stickerId, soundId, videoId, displayDuration, enabled, sortOrder } = req.body;
+    const { name, price, currency, description, stickerId, soundId, videoId, isGreenScreen, displayDuration, enabled, sortOrder } = req.body;
     if (!name || !price) {
       return res.status(400).json({ error: 'Name and price are required' });
     }
@@ -577,6 +630,7 @@ async function startServer() {
       stickerId: stickerId || undefined,
       soundId: soundId || undefined,
       videoId: videoId || undefined,
+      isGreenScreen: isGreenScreen !== undefined ? Boolean(isGreenScreen) : false,
       displayDuration: Number(displayDuration) || 8,
       enabled: enabled !== undefined ? Boolean(enabled) : true,
       sortOrder: Number(sortOrder) || 1,
@@ -626,14 +680,14 @@ async function startServer() {
     res.json(db.getMediaAssets(type));
   });
 
-  app.post('/api/admin/media/upload', requireAdminAuth, uploadMiddleware.single('file'), async (req: AuthenticatedRequest, res) => {
+  app.post('/api/admin/media/upload', requireAdminAuth, uploadMiddleware.single('file'), (req: AuthenticatedRequest, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: 'No media file provided' });
       }
 
-      const { name, type, duration, volume } = req.body;
-      const fileUrl = await saveUploadedFile(req.file);
+      const { name, type, duration, volume, isGreenScreen } = req.body;
+      const fileUrl = `/uploads/${req.file.filename}`;
 
       const media = db.addMediaAsset({
         name: name || req.file.originalname,
@@ -641,6 +695,7 @@ async function startServer() {
         url: fileUrl,
         duration: duration ? Number(duration) : undefined,
         volume: volume ? Number(volume) : 0.8,
+        isGreenScreen: isGreenScreen === 'true' || isGreenScreen === true,
         enabled: true,
       });
 

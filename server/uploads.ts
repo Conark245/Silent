@@ -1,7 +1,13 @@
 import multer from 'multer';
 import path from 'path';
+import fs from 'fs';
 import crypto from 'crypto';
-import { put } from '@vercel/blob';
+
+const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
+
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
 
 const allowedMimeTypes = [
   'image/png',
@@ -18,8 +24,16 @@ const allowedMimeTypes = [
   'video/webm',
 ];
 
-// Use memoryStorage to avoid local filesystem disk directory dependency
-const storage = multer.memoryStorage();
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, UPLOADS_DIR);
+  },
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const randomName = crypto.randomBytes(16).toString('hex');
+    cb(null, `${Date.now()}-${randomName}${ext}`);
+  },
+});
 
 export const uploadMiddleware = multer({
   storage,
@@ -34,30 +48,3 @@ export const uploadMiddleware = multer({
     }
   },
 });
-
-/**
- * Saves uploaded file buffer to Vercel Blob storage if BLOB_READ_WRITE_TOKEN is set,
- * or converts to Base64 Data URL so no local filesystem write is needed.
- */
-export async function saveUploadedFile(file: Express.Multer.File): Promise<string> {
-  const ext = path.extname(file.originalname).toLowerCase() || '.png';
-  const randomName = crypto.randomBytes(12).toString('hex');
-  const filename = `uploads/${Date.now()}-${randomName}${ext}`;
-
-  // Priority 1: Upload to Vercel Blob if token exists
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
-    try {
-      const blob = await put(filename, file.buffer, {
-        access: 'public',
-        contentType: file.mimetype,
-      });
-      return blob.url;
-    } catch (err) {
-      console.error('[Vercel Blob] Upload error, falling back to Data URL:', err);
-    }
-  }
-
-  // Priority 2: Return Data URL (In-memory, self-contained without disk reliance)
-  const base64Data = file.buffer.toString('base64');
-  return `data:${file.mimetype};base64,${base64Data}`;
-}

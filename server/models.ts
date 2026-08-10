@@ -44,6 +44,7 @@ const DonationItemSchema = new Schema({
   stickerId: { type: String },
   soundId: { type: String },
   videoId: { type: String },
+  isGreenScreen: { type: Boolean, default: false },
   displayDuration: { type: Number, default: 8 },
   enabled: { type: Boolean, default: true },
   sortOrder: { type: Number, default: 1 },
@@ -57,6 +58,7 @@ const MediaAssetSchema = new Schema({
   url: { type: String, required: true },
   duration: { type: Number },
   volume: { type: Number },
+  isGreenScreen: { type: Boolean, default: false },
   enabled: { type: Boolean, default: true },
   createdAt: { type: String, default: () => new Date().toISOString() },
 });
@@ -115,6 +117,14 @@ const TelegramSettingsSchema = new Schema({
   isWebhookActive: { type: Boolean, default: false },
 });
 
+// Cloudinary Settings Schema
+const CloudinarySettingsSchema = new Schema({
+  cloudName: { type: String, default: '' },
+  apiKey: { type: String, default: '' },
+  apiSecret: { type: String, default: '' },
+  folder: { type: String, default: 'payment_proofs' },
+  enabled: { type: Boolean, default: true },
+});
 
 // System Settings Schema
 const SystemSettingsSchema = new Schema({
@@ -134,4 +144,5 @@ export const DonationModel = mongoose.models.Donation || mongoose.model('Donatio
 export const DonationEventModel = mongoose.models.DonationEvent || mongoose.model('DonationEvent', DonationEventSchema);
 export const AuditLogModel = mongoose.models.AuditLog || mongoose.model('AuditLog', AuditLogSchema);
 export const TelegramSettingsModel = mongoose.models.TelegramSettings || mongoose.model('TelegramSettings', TelegramSettingsSchema);
+export const CloudinarySettingsModel = mongoose.models.CloudinarySettings || mongoose.model('CloudinarySettings', CloudinarySettingsSchema);
 export const SystemSettingsModel = mongoose.models.SystemSettings || mongoose.model('SystemSettings', SystemSettingsSchema);

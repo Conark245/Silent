@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { GreenScreenMedia } from './GreenScreenMedia';
 import {
   Donation,
   PaymentMethod,
@@ -6,6 +7,7 @@ import {
   MediaAsset,
   AuditLog,
   TelegramSettings,
+  CloudinarySettings,
   SystemSettings,
 } from '../types';
 import { DonationAnalytics } from './DonationAnalytics';
@@ -16,6 +18,7 @@ import {
   Sparkles,
   Image as ImageIcon,
   Send,
+  Cloud,
   History,
   LogOut,
   Plus,
@@ -46,6 +49,8 @@ import {
   Download,
   Archive,
   Palette,
+  Eye,
+  X,
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -60,7 +65,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onNavigateOverlay,
 }) => {
   const [activeTab, setActiveTab] = useState<
-    'donations' | 'analytics' | 'payment-methods' | 'items' | 'media' | 'telegram' | 'audit' | 'obs-guide'
+    'donations' | 'analytics' | 'payment-methods' | 'items' | 'media' | 'telegram' | 'cloudinary' | 'audit' | 'obs-guide'
   >('donations');
 
   const [copiedObsUrl, setCopiedObsUrl] = useState<string | null>(null);
@@ -106,6 +111,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     'ALL'
   );
 
+  // Selected Order Preview modal state
+  const [previewOrder, setPreviewOrder] = useState<Donation | null>(null);
+
   // Modal / Form state for payment method
   const [editingPm, setEditingPm] = useState<Partial<PaymentMethod> | null>(null);
   // Modal / Form state for donation item
@@ -116,12 +124,57 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [mediaName, setMediaName] = useState('');
   const [mediaDuration, setMediaDuration] = useState('8');
   const [mediaVolume, setMediaVolume] = useState('0.8');
+  const [isGreenScreenUpload, setIsGreenScreenUpload] = useState(false);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
 
   // Telegram settings form
   const [telegramFormToken, setTelegramFormToken] = useState('');
   const [telegramFormAdminIds, setTelegramFormAdminIds] = useState('');
   const [telegramFormWebhookUrl, setTelegramFormWebhookUrl] = useState('');
+
+  // Cloudinary settings form
+  const [cloudinarySettings, setCloudinarySettings] = useState<CloudinarySettings>({
+    cloudName: '',
+    apiKey: '',
+    apiSecret: '',
+    folder: 'payment_proofs',
+    enabled: true,
+  });
+  const [cloudinaryFormCloudName, setCloudinaryFormCloudName] = useState('');
+  const [cloudinaryFormApiKey, setCloudinaryFormApiKey] = useState('');
+  const [cloudinaryFormApiSecret, setCloudinaryFormApiSecret] = useState('');
+  const [cloudinaryFormFolder, setCloudinaryFormFolder] = useState('payment_proofs');
+  const [isSavingCloudinary, setIsSavingCloudinary] = useState(false);
+
+  const handleSaveCloudinarySettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingCloudinary(true);
+    try {
+      const res = await fetch('/api/admin/cloudinary-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cloudName: cloudinaryFormCloudName,
+          apiKey: cloudinaryFormApiKey,
+          apiSecret: cloudinaryFormApiSecret,
+          folder: cloudinaryFormFolder,
+          enabled: true,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCloudinarySettings(data.settings);
+        alert('Cloudinary settings saved successfully!');
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Failed to save Cloudinary settings');
+      }
+    } catch (err) {
+      alert('Error saving Cloudinary settings');
+    } finally {
+      setIsSavingCloudinary(false);
+    }
+  };
 
   // Preview / Test OBS alert state
   const [triggeringTest, setTriggeringTest] = useState(false);
@@ -324,16 +377,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           const sysData = await safeParseJson(sysRes);
           if (sysData) setSystemSettings(sysData);
         }
-      } else if (activeTab === 'telegram') {
-        const res = await fetch('/api/admin/telegram-settings');
-        if (res.status === 401) { onLogout(); return; }
-        if (res.ok) {
-          const data: TelegramSettings | null = await safeParseJson(res);
+      } else if (activeTab === 'telegram' || activeTab === 'cloudinary') {
+        const [tgRes, cldRes] = await Promise.all([
+          fetch('/api/admin/telegram-settings'),
+          fetch('/api/admin/cloudinary-settings'),
+        ]);
+        if (tgRes.status === 401 || cldRes.status === 401) { onLogout(); return; }
+        if (tgRes.ok) {
+          const data: TelegramSettings | null = await safeParseJson(tgRes);
           if (data) {
             setTelegramSettings(data);
             setTelegramFormToken(data.botToken || '');
             setTelegramFormAdminIds(data.adminIds ? data.adminIds.join(', ') : '');
             setTelegramFormWebhookUrl(data.webhookUrl || window.location.origin);
+          }
+        }
+        if (cldRes.ok) {
+          const cldData: CloudinarySettings | null = await safeParseJson(cldRes);
+          if (cldData) {
+            setCloudinarySettings(cldData);
+            setCloudinaryFormCloudName(cldData.cloudName || '');
+            setCloudinaryFormApiKey(cldData.apiKey || '');
+            setCloudinaryFormApiSecret(cldData.apiSecret || '');
+            setCloudinaryFormFolder(cldData.folder || 'payment_proofs');
           }
         }
       } else if (activeTab === 'audit') {
@@ -361,6 +427,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       if (res.ok) {
         loadTabContent();
+        if (previewOrder && previewOrder.id === donationId) {
+          setPreviewOrder(prev => prev ? { ...prev, status: action === 'approve' ? 'APPROVED' : 'DECLINED' } : null);
+        }
       } else {
         const err = await res.json();
         alert(`Action failed: ${err.error || 'Unknown error'}`);
@@ -490,6 +559,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       formData.append('type', mediaUploadType);
       formData.append('duration', mediaDuration);
       formData.append('volume', mediaVolume);
+      formData.append('isGreenScreen', String(isGreenScreenUpload));
 
       const res = await fetch('/api/admin/media/upload', {
         method: 'POST',
@@ -499,6 +569,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       if (res.ok) {
         setUploadFile(null);
         setMediaName('');
+        setIsGreenScreenUpload(false);
         loadTabContent();
       } else {
         const err = await res.json();
@@ -511,6 +582,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  const handleToggleMediaGreenScreen = async (id: string, currentVal: boolean) => {
+    const newVal = !currentVal;
+    setMediaAssets((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, isGreenScreen: newVal } : m))
+    );
+    try {
+      await fetch(`/api/admin/media/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isGreenScreen: newVal }),
+      });
+    } catch (err) {
+      console.error('Failed to update green screen setting', err);
+    }
+  };
+
   const handleDeleteMediaAsset = async (id: string) => {
     if (!confirm('Delete media asset?')) return;
     try {
@@ -518,6 +605,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       if (res.ok) loadTabContent();
     } catch (e) {
       alert('Delete error');
+    }
+  };
+
+  const handleUpdateMediaAssetVolume = async (id: string, volume: number) => {
+    setMediaAssets((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, volume } : m))
+    );
+    try {
+      await fetch(`/api/admin/media/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ volume }),
+      });
+    } catch (err) {
+      console.error('Failed to update media volume', err);
     }
   };
 
@@ -548,12 +650,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleTestTelegramConnection = async () => {
     try {
       const adminIds = telegramFormAdminIds
-        .split(',')
+        .split(/[\n,;\s]+/)
         .map((s) => s.trim())
         .filter(Boolean);
 
       if (!telegramFormToken || adminIds.length === 0) {
-        return alert('Please enter Bot Token and at least one Admin ID before testing.');
+        return alert('Please enter Bot Token and at least one Admin Chat ID before testing.');
       }
 
       const res = await fetch('/api/admin/telegram-settings/test', {
@@ -564,7 +666,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       if (res.ok) {
         const data = await res.json();
-        alert('Test message sent successfully to ' + data.sentCount + ' admin(s).');
+        alert(`Test message sent successfully to ${data.sentCount} Telegram Chat ID(s)!`);
       } else {
         const err = await res.json();
         alert('Failed to send test message: ' + (err.error || 'Unknown error'));
@@ -578,7 +680,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     e.preventDefault();
     try {
       const adminIds = telegramFormAdminIds
-        .split(',')
+        .split(/[\n,;\s]+/)
         .map((s) => s.trim())
         .filter(Boolean);
 
@@ -595,7 +697,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       });
 
       if (res.ok) {
-        alert('Telegram Bot Settings & Webhook saved successfully');
+        alert(`Telegram Bot Settings & Webhook saved successfully (${adminIds.length} Chat ID(s) active)`);
         loadTabContent();
       } else {
         const err = await res.json();
@@ -738,6 +840,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             >
               <Send className="w-5 h-5" />
               <span className="whitespace-nowrap">Telegram Bot</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('cloudinary')}
+              className={`shrink-0 md:w-full flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 md:py-3 rounded-lg text-sm font-medium transition cursor-pointer ${
+                activeTab === 'cloudinary'
+                  ? 'bg-indigo-500/10 text-indigo-400'
+                  : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              <Cloud className="w-5 h-5" />
+              <span className="whitespace-nowrap">Cloudinary Storage</span>
             </button>
 
             <button
@@ -930,6 +1044,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <th className="px-6 py-3">Amount</th>
                         <th className="px-6 py-3">Reward Item</th>
                         <th className="px-6 py-3">Payment</th>
+                        <th className="px-6 py-3">Payment Proof</th>
                         <th className="px-6 py-3 text-right">Status</th>
                         <th className="px-6 py-3 text-right">Actions</th>
                       </tr>
@@ -937,7 +1052,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <tbody className="text-sm divide-y divide-slate-800">
                       {donations.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="px-6 py-8 text-center text-slate-400 dark:text-slate-500">
+                          <td colSpan={7} className="px-6 py-8 text-center text-slate-400 dark:text-slate-500">
                             No donations found in queue.
                           </td>
                         </tr>
@@ -965,6 +1080,37 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               <div>{d.paymentMethodName || 'N/A'}</div>
                               {d.paymentReference && (
                                 <div className="text-[10px] font-mono text-slate-400 dark:text-slate-500">Ref: {d.paymentReference}</div>
+                              )}
+                            </td>
+                            <td className="px-6 py-4">
+                              {d.paymentProofUrl ? (
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => setPreviewOrder(d)}
+                                    className="relative group shrink-0 overflow-hidden rounded-lg border border-slate-300 dark:border-slate-700 w-11 h-11 bg-slate-100 dark:bg-slate-800 cursor-pointer shadow-sm"
+                                    title="Click to view full order & proof"
+                                  >
+                                    <img src={d.paymentProofUrl} alt="Proof" className="w-full h-full object-cover group-hover:scale-110 transition" />
+                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
+                                      <Eye className="w-4 h-4" />
+                                    </div>
+                                  </button>
+                                  <button
+                                    onClick={() => setPreviewOrder(d)}
+                                    className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 hover:text-indigo-600 dark:hover:text-indigo-300 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer border border-slate-200 dark:border-slate-700"
+                                  >
+                                    <Eye className="w-3.5 h-3.5 text-indigo-500" />
+                                    <span>Preview</span>
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => setPreviewOrder(d)}
+                                  className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer border border-slate-200 dark:border-slate-700"
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                  <span>View Details</span>
+                                </button>
                               )}
                             </td>
                             <td className="px-6 py-4 text-right">
@@ -1091,13 +1237,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <th className="px-6 py-3">Donor</th>
                         <th className="px-6 py-3">Amount</th>
                         <th className="px-6 py-3">Payment</th>
+                        <th className="px-6 py-3">Payment Proof</th>
                         <th className="px-6 py-3 text-right">Status</th>
                       </tr>
                     </thead>
                     <tbody className="text-sm divide-y divide-slate-800">
                       {donations.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="px-6 py-8 text-center text-slate-400 dark:text-slate-500">
+                          <td colSpan={6} className="px-6 py-8 text-center text-slate-400 dark:text-slate-500">
                             No processed donations found.
                           </td>
                         </tr>
@@ -1121,6 +1268,37 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               <div>{d.paymentMethodName || 'N/A'}</div>
                               {d.paymentReference && (
                                 <div className="text-[10px] font-mono text-slate-400 dark:text-slate-500">Ref: {d.paymentReference}</div>
+                              )}
+                            </td>
+                            <td className="px-6 py-4">
+                              {d.paymentProofUrl ? (
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => setPreviewOrder(d)}
+                                    className="relative group shrink-0 overflow-hidden rounded-lg border border-slate-300 dark:border-slate-700 w-11 h-11 bg-slate-100 dark:bg-slate-800 cursor-pointer shadow-sm"
+                                    title="Click to view full order & proof"
+                                  >
+                                    <img src={d.paymentProofUrl} alt="Proof" className="w-full h-full object-cover group-hover:scale-110 transition" />
+                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
+                                      <Eye className="w-4 h-4" />
+                                    </div>
+                                  </button>
+                                  <button
+                                    onClick={() => setPreviewOrder(d)}
+                                    className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 hover:text-indigo-600 dark:hover:text-indigo-300 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer border border-slate-200 dark:border-slate-700"
+                                  >
+                                    <Eye className="w-3.5 h-3.5 text-indigo-500" />
+                                    <span>Preview</span>
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => setPreviewOrder(d)}
+                                  className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer border border-slate-200 dark:border-slate-700"
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                  <span>View Details</span>
+                                </button>
                               )}
                             </td>
                             <td className="px-6 py-4 text-right">
@@ -1572,6 +1750,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </select>
                     </div>
 
+                    <div className="bg-slate-50 dark:bg-[#0F172A] p-3 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                        <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">Remove Green Screen (Chroma Key) on OBS Alert</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(editingItem.isGreenScreen)}
+                        onChange={(e) => setEditingItem({ ...editingItem, isGreenScreen: e.target.checked })}
+                        className="w-4 h-4 accent-emerald-500 cursor-pointer"
+                      />
+                    </div>
+
                     <div className="flex justify-end gap-2 pt-2">
                       <button
                         type="button"
@@ -1688,6 +1879,44 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                 </div>
 
+                {(mediaUploadType === 'sticker' || mediaUploadType === 'video') && (
+                  <div className="bg-emerald-500/10 border border-emerald-500/30 p-3 rounded-xl flex items-center justify-between text-slate-800 dark:text-slate-200">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      <span className="font-semibold text-xs">Remove Green Screen Background (Chroma Key)</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={isGreenScreenUpload}
+                      onChange={(e) => setIsGreenScreenUpload(e.target.checked)}
+                      className="w-4 h-4 accent-emerald-500 cursor-pointer"
+                    />
+                  </div>
+                )}
+
+                {(mediaUploadType === 'sound' || mediaUploadType === 'video') && (
+                  <div className="bg-slate-50 dark:bg-[#0F172A] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5">
+                    <div className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-semibold">
+                      <label className="flex items-center gap-1.5 text-xs">
+                        <Volume2 className="w-4 h-4 text-indigo-500" />
+                        <span>Default Audio Volume Level</span>
+                      </label>
+                      <span className="text-xs font-mono text-indigo-600 dark:text-indigo-400 font-bold bg-indigo-500/10 px-2 py-0.5 rounded-md">
+                        {Math.round(parseFloat(mediaVolume) * 100)}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={mediaVolume}
+                      onChange={(e) => setMediaVolume(e.target.value)}
+                      className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                    />
+                  </div>
+                )}
+
                 <button
                   type="submit"
                   disabled={isUploadingMedia}
@@ -1724,23 +1953,83 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       {/* Preview Element */}
                       <div className="bg-slate-50 dark:bg-[#0F172A] rounded-xl border border-slate-200 dark:border-slate-800 p-3 h-28 flex items-center justify-center overflow-hidden">
                         {asset.type === 'sticker' && (
-                          <img
+                          <GreenScreenMedia
                             src={asset.url}
+                            type="sticker"
+                            isGreenScreen={asset.isGreenScreen}
                             alt={asset.name}
                             className="max-h-24 max-w-full object-contain"
                           />
                         )}
                         {asset.type === 'sound' && (
-                          <audio controls src={asset.url} className="w-full h-8" />
-                        )}
-                        {asset.type === 'video' && (
-                          <video
+                          <audio
                             controls
                             src={asset.url}
+                            ref={(el) => {
+                              if (el) el.volume = asset.volume ?? 0.8;
+                            }}
+                            onPlay={(e) => {
+                              e.currentTarget.volume = asset.volume ?? 0.8;
+                            }}
+                            className="w-full h-8"
+                          />
+                        )}
+                        {asset.type === 'video' && (
+                          <GreenScreenMedia
+                            src={asset.url}
+                            type="video"
+                            isGreenScreen={asset.isGreenScreen}
+                            volume={asset.volume ?? 0.8}
+                            autoPlay={true}
+                            loop={true}
+                            muted={true}
                             className="max-h-24 max-w-full object-contain"
                           />
                         )}
                       </div>
+
+                      {/* Green Screen Toggle Button for Stickers and Videos */}
+                      {(asset.type === 'sticker' || asset.type === 'video') && (
+                        <button
+                          type="button"
+                          onClick={() => handleToggleMediaGreenScreen(asset.id, !!asset.isGreenScreen)}
+                          className={`mt-2.5 w-full py-1.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 border transition cursor-pointer ${
+                            asset.isGreenScreen
+                              ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
+                              : 'bg-slate-100 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-400'
+                          }`}
+                        >
+                          <span className={`w-2 h-2 rounded-full ${asset.isGreenScreen ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+                          <span>{asset.isGreenScreen ? 'Green Screen Removed' : 'Enable Green Screen Removal'}</span>
+                        </button>
+                      )}
+
+                      {/* Volume Slider for Sound and Video */}
+                      {(asset.type === 'sound' || asset.type === 'video') && (
+                        <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 space-y-1.5">
+                          <div className="flex items-center justify-between text-[11px] font-medium text-slate-700 dark:text-slate-300">
+                            <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-semibold">
+                              <Volume2 className="w-3.5 h-3.5 text-indigo-500" /> Sound Volume
+                            </span>
+                            <span className="font-mono text-indigo-600 dark:text-indigo-400 font-bold bg-indigo-500/10 px-1.5 py-0.5 rounded text-[10px]">
+                              {Math.round((asset.volume ?? 0.8) * 100)}%
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.05"
+                            value={asset.volume ?? 0.8}
+                            onChange={(e) => {
+                              const newVol = parseFloat(e.target.value);
+                              handleUpdateMediaAssetVolume(asset.id, newVol);
+                            }}
+                            className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                            title="Adjust Volume Level"
+                          />
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex items-center justify-between text-[11px] text-slate-400 dark:text-slate-500 pt-2 border-t border-slate-200 dark:border-slate-800/60">
@@ -1920,18 +2209,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                 <div>
                   <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
-                    Allowed Admin Telegram IDs or Usernames (Comma Separated)
+                    Allowed Admin Telegram IDs or Usernames (Comma / Newline Separated for 2+ Chat IDs)
                   </label>
-                  <input
-                    type="text"
+                  <textarea
+                    rows={2}
                     value={telegramFormAdminIds}
                     onChange={(e) => setTelegramFormAdminIds(e.target.value)}
-                    placeholder="123456789, @conarconar18, conarconar18"
+                    placeholder="6013433377, 987654321"
                     className="w-full px-4 py-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono focus:outline-none focus:border-indigo-500"
                   />
-                  <span className="text-[11px] text-slate-400 dark:text-slate-500 mt-1 block">
-                    Supports Telegram Chat IDs (e.g., 6013433377) or Telegram handles (e.g., @conarconar18). Leave empty or add your ID to authorize button actions.
-                  </span>
+                  
+                  {/* Badge Preview of Configured Chat IDs */}
+                  {telegramFormAdminIds.split(/[\n,;\s]+/).filter(Boolean).length > 0 && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">Configured Chat IDs:</span>
+                      {telegramFormAdminIds.split(/[\n,;\s]+/).filter(Boolean).map((id, idx) => (
+                        <span key={idx} className="px-2.5 py-1 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 rounded-lg text-xs font-mono font-medium flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                          Chat ID #{idx + 1}: {id}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="mt-3 p-3.5 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200/50 dark:border-indigo-800/30 rounded-xl text-xs text-indigo-900 dark:text-indigo-200 space-y-1.5">
+                    <p className="font-semibold flex items-center gap-1.5">
+                      <span>💡 Chat ID ၂ ခု သို့မဟုတ် အများအပြား အသုံးပြုနည်း (Multi-Admin Setup Guide)</span>
+                    </p>
+                    <ul className="list-disc pl-4 space-y-1 text-slate-600 dark:text-slate-300">
+                      <li><strong>Chat ID ၂ ခု ထည့်သွင်းရန်:</strong> အပေါ်က ကွက်လပ်တွင် Comma (,) သို့မဟုတ် Space ခြား၍ ID နှစ်ခုလုံးကို ရေးပါ (ဥပမာ- <code className="bg-white dark:bg-slate-800 px-1 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">6013433377, 987654321</code>)။</li>
+                      <li><strong>Donation အကြောင်းကြားစာ:</strong> အလှူငွေအသစ်ဝင်လာပါက Chat ID နှစ်ခုစလုံးသို့ အကြောင်းကြားစာပုံနှင့် တပြိုင်နက်တည်း ရောက်ရှိပါမည်။</li>
+                      <li><strong>Approve / Decline:</strong> Chat ID နှစ်ခုစလုံးမှ Approve သို့မဟုတ် Decline ခလုတ်ကို နှိပ်၍ အတည်ပြုနိုင်ပါသည်။</li>
+                      <li><strong>Chat ID ရယူနည်း:</strong> Telegram တွင် <code className="bg-white dark:bg-slate-800 px-1 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">@userinfobot</code> သို့မဟုတ် <code className="bg-white dark:bg-slate-800 px-1 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">@GetChatID_Bot</code> သို့ <code className="bg-white dark:bg-slate-800 px-1 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">/start</code> ပို့၍ မိမိ Chat ID ကို ရယူနိုင်ပါသည်။</li>
+                    </ul>
+                  </div>
                 </div>
 
                 <div>
@@ -1964,6 +2275,111 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   >
                     <Send className="w-4 h-4" />
                     Test Connection
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* TAB: CLOUDINARY STORAGE SETTINGS */}
+          {activeTab === 'cloudinary' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center justify-between">
+                  <span>Cloudinary Image Storage</span>
+                  {cloudinaryFormCloudName && cloudinaryFormApiKey && cloudinaryFormApiSecret ? (
+                    <span className="px-3 py-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-full text-xs font-mono font-medium flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      Cloudinary Configured
+                    </span>
+                  ) : (
+                    <span className="px-3 py-1 bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 rounded-full text-xs font-mono font-medium flex items-center gap-1.5">
+                      Local Storage (Fallback)
+                    </span>
+                  )}
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Configure Cloudinary credentials to upload Payment Proof screenshots directly to Cloudinary cloud storage.
+                </p>
+              </div>
+
+              <form
+                onSubmit={handleSaveCloudinarySettings}
+                className="bg-white dark:bg-[#1E293B] border border-slate-200 dark:border-slate-800 rounded-2xl p-6 space-y-4 text-xs shadow-xl"
+              >
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
+                    Cloud Name (CLOUDINARY_CLOUD_NAME)
+                  </label>
+                  <input
+                    type="text"
+                    value={cloudinaryFormCloudName}
+                    onChange={(e) => setCloudinaryFormCloudName(e.target.value)}
+                    placeholder="e.g. dxyz12345"
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
+                    API Key (CLOUDINARY_API_KEY)
+                  </label>
+                  <input
+                    type="text"
+                    value={cloudinaryFormApiKey}
+                    onChange={(e) => setCloudinaryFormApiKey(e.target.value)}
+                    placeholder="e.g. 123456789012345"
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
+                    API Secret (CLOUDINARY_API_SECRET)
+                  </label>
+                  <input
+                    type="password"
+                    value={cloudinaryFormApiSecret}
+                    onChange={(e) => setCloudinaryFormApiSecret(e.target.value)}
+                    placeholder="••••••••••••••••••••••••••••"
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
+                    Cloudinary Folder
+                  </label>
+                  <input
+                    type="text"
+                    value={cloudinaryFormFolder}
+                    onChange={(e) => setCloudinaryFormFolder(e.target.value)}
+                    placeholder="payment_proofs"
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono focus:outline-none focus:border-indigo-500"
+                  />
+                  <span className="text-[11px] text-slate-400 dark:text-slate-500 mt-1 block">
+                    Folder name in your Cloudinary account where payment proof screenshots will be stored.
+                  </span>
+                </div>
+
+                <div className="p-3.5 bg-sky-50 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-800/30 rounded-xl text-xs text-sky-900 dark:text-sky-200 space-y-1">
+                  <p className="font-semibold flex items-center gap-1.5">
+                    <span>☁️ Cloudinary Storage Details</span>
+                  </p>
+                  <p className="text-slate-600 dark:text-slate-300">
+                    - You can also configure these in your <code className="bg-white dark:bg-slate-800 px-1 py-0.5 rounded border border-sky-200 dark:border-sky-800">.env</code> file via <code className="bg-white dark:bg-slate-800 px-1 py-0.5 rounded border border-sky-200 dark:border-sky-800">CLOUDINARY_CLOUD_NAME</code>, <code className="bg-white dark:bg-slate-800 px-1 py-0.5 rounded border border-sky-200 dark:border-sky-800">CLOUDINARY_API_KEY</code>, and <code className="bg-white dark:bg-slate-800 px-1 py-0.5 rounded border border-sky-200 dark:border-sky-800">CLOUDINARY_API_SECRET</code>.<br />
+                    - When set, all Payment Proof screenshots uploaded by donors will automatically be sent to Cloudinary and return secure HTTPS Cloudinary URLs (<code className="bg-white dark:bg-slate-800 px-1 py-0.5 rounded border border-sky-200 dark:border-sky-800">https://res.cloudinary.com/...</code>).
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3 pt-2">
+                  <button
+                    type="submit"
+                    disabled={isSavingCloudinary}
+                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold rounded-lg transition cursor-pointer shadow-md flex items-center gap-2"
+                  >
+                    <Cloud className="w-4 h-4" />
+                    {isSavingCloudinary ? 'Saving...' : 'Save Cloudinary Settings'}
                   </button>
                 </div>
               </form>
@@ -2403,6 +2819,162 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           )}
         </main>
+
+        {/* ORDER & PAYMENT PROOF PREVIEW MODAL */}
+        {previewOrder && (
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-fade-in">
+            <div className="bg-white dark:bg-[#1E293B] border border-slate-200 dark:border-slate-800 rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden my-8">
+              {/* Modal Header */}
+              <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900/50">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-indigo-500/10 text-indigo-500 rounded-xl">
+                    <Eye className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 dark:text-slate-100 text-base flex items-center gap-2">
+                      Order Preview ({previewOrder.publicId})
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Submitted at: {new Date(previewOrder.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setPreviewOrder(null)}
+                  className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Modal Content */}
+              <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto text-sm">
+                {/* Status Banner */}
+                <div className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60 rounded-xl">
+                  <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">Order Status:</span>
+                  {previewOrder.status === 'PENDING' && (
+                    <span className="px-3 py-1 bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 rounded-full text-xs font-bold uppercase flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5" /> Waiting for Approval
+                    </span>
+                  )}
+                  {previewOrder.status === 'APPROVED' && (
+                    <span className="px-3 py-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-full text-xs font-bold uppercase flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Approved
+                    </span>
+                  )}
+                  {previewOrder.status === 'DECLINED' && (
+                    <span className="px-3 py-1 bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 rounded-full text-xs font-bold uppercase flex items-center gap-1.5">
+                      <XCircle className="w-3.5 h-3.5" /> Declined
+                    </span>
+                  )}
+                </div>
+
+                {/* Details Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="p-4 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1">
+                    <span className="text-xs text-slate-500 dark:text-slate-400 block font-medium">Donor Name</span>
+                    <span className="text-base font-semibold text-slate-900 dark:text-slate-100">{previewOrder.donorName || 'Anonymous'}</span>
+                  </div>
+
+                  <div className="p-4 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1">
+                    <span className="text-xs text-slate-500 dark:text-slate-400 block font-medium">Donation Amount</span>
+                    <span className="text-base font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                      {previewOrder.amount.toLocaleString()} {previewOrder.currency}
+                    </span>
+                  </div>
+
+                  <div className="p-4 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1">
+                    <span className="text-xs text-slate-500 dark:text-slate-400 block font-medium">Selected Reward Item</span>
+                    <span className="text-sm font-semibold text-indigo-600 dark:text-indigo-400">
+                      {previewOrder.donationItemName || 'Standard Donation'}
+                    </span>
+                  </div>
+
+                  <div className="p-4 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1">
+                    <span className="text-xs text-slate-500 dark:text-slate-400 block font-medium">Payment Method & Ref</span>
+                    <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">{previewOrder.paymentMethodName || 'N/A'}</span>
+                    {previewOrder.paymentReference && (
+                      <span className="text-xs font-mono text-slate-500 block">Ref: {previewOrder.paymentReference}</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Donor Message */}
+                {previewOrder.message && (
+                  <div className="p-4 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1">
+                    <span className="text-xs text-slate-500 dark:text-slate-400 block font-medium">Donor Message</span>
+                    <p className="text-sm text-slate-800 dark:text-slate-200 italic">"{previewOrder.message}"</p>
+                  </div>
+                )}
+
+                {/* Payment Proof Image Section */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <ImageIcon className="w-4 h-4 text-indigo-500" /> Payment Proof Screenshot
+                    </span>
+                    {previewOrder.paymentProofUrl && (
+                      <a
+                        href={previewOrder.paymentProofUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                      >
+                        Open Full Image <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                  </div>
+
+                  {previewOrder.paymentProofUrl ? (
+                    <div className="relative border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden bg-slate-900 flex items-center justify-center min-h-[220px] max-h-[380px] p-2 group">
+                      <img
+                        src={previewOrder.paymentProofUrl}
+                        alt="Payment Proof"
+                        className="max-h-[360px] w-auto max-w-full object-contain rounded-lg shadow-md"
+                      />
+                    </div>
+                  ) : (
+                    <div className="p-8 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl text-center text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-900/20">
+                      <ImageIcon className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                      <p className="text-xs">No Payment Proof image uploaded for this order.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Modal Footer Actions */}
+              <div className="px-6 py-4 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+                <button
+                  onClick={() => setPreviewOrder(null)}
+                  className="px-4 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-medium rounded-xl text-xs transition cursor-pointer"
+                >
+                  Close
+                </button>
+
+                {previewOrder.status === 'PENDING' && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        handleUpdateDonationStatus(previewOrder.id, 'decline');
+                      }}
+                      className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-semibold rounded-xl text-xs transition cursor-pointer flex items-center gap-1.5 shadow-md"
+                    >
+                      <XCircle className="w-4 h-4" /> Decline Order
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleUpdateDonationStatus(previewOrder.id, 'approve');
+                      }}
+                      className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-xs transition cursor-pointer flex items-center gap-1.5 shadow-md"
+                    >
+                      <CheckCircle2 className="w-4 h-4" /> Approve Order
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
