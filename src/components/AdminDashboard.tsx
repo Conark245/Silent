@@ -51,6 +51,13 @@ import {
   Palette,
   Eye,
   X,
+  Folder,
+  HardDrive,
+  Database,
+  Film,
+  Key,
+  Lock,
+  User,
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -65,7 +72,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onNavigateOverlay,
 }) => {
   const [activeTab, setActiveTab] = useState<
-    'donations' | 'analytics' | 'payment-methods' | 'items' | 'media' | 'telegram' | 'cloudinary' | 'audit' | 'obs-guide'
+    'donations' | 'analytics' | 'payment-methods' | 'items' | 'media' | 'theme' | 'telegram' | 'cloudinary' | 'account' | 'audit' | 'obs-guide'
   >('donations');
 
   const [copiedObsUrl, setCopiedObsUrl] = useState<string | null>(null);
@@ -146,6 +153,96 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [cloudinaryFormFolder, setCloudinaryFormFolder] = useState('payment_proofs');
   const [isSavingCloudinary, setIsSavingCloudinary] = useState(false);
 
+  // Cloudinary storage stats and management
+  interface CldStats {
+    isConnected: boolean;
+    cloudName: string;
+    folders: Array<{
+      name: string;
+      label: string;
+      description: string;
+      count: number;
+      sizeBytes?: number;
+    }>;
+    usage: {
+      storageBytes: number;
+      storageLimitBytes: number;
+      bandwidthBytes: number;
+      bandwidthLimitBytes: number;
+      objectsCount: number;
+      plan: string;
+      creditsUsed?: number;
+      creditsLimit?: number;
+    };
+    error?: string;
+  }
+
+  const [cldStats, setCldStats] = useState<CldStats | null>(null);
+  const [loadingCldStats, setLoadingCldStats] = useState(false);
+  const [testingCldConn, setTestingCldConn] = useState(false);
+  const [cldTestResult, setCldTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [deletingCldFolder, setDeletingCldFolder] = useState<string | null>(null);
+
+  const formatBytes = (bytes: number): string => {
+    if (!bytes || bytes <= 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const fetchCldStats = async () => {
+    setLoadingCldStats(true);
+    try {
+      const res = await fetch('/api/admin/cloudinary-stats');
+      if (res.ok) {
+        const data = await res.json();
+        setCldStats(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch Cloudinary stats:', err);
+    } finally {
+      setLoadingCldStats(false);
+    }
+  };
+
+  const handleTestCldConnection = async () => {
+    setTestingCldConn(true);
+    setCldTestResult(null);
+    try {
+      const res = await fetch('/api/admin/cloudinary-test', { method: 'POST' });
+      const data = await res.json();
+      setCldTestResult(data);
+    } catch (err: any) {
+      setCldTestResult({ success: false, message: err.message || 'Connection test failed' });
+    } finally {
+      setTestingCldConn(false);
+    }
+  };
+
+  const handleClearCldFolder = async (folderName: string, folderLabel: string) => {
+    const confirmText = `⚠️ Warning:\n\nAre you sure you want to delete all files in '${folderLabel}' (${folderName}) folder? This action cannot be undone.`;
+    if (!window.confirm(confirmText)) return;
+
+    setDeletingCldFolder(folderName);
+    try {
+      const res = await fetch(`/api/admin/cloudinary-folder/${folderName}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`✅ ${data.message}`);
+        fetchCldStats();
+      } else {
+        alert(`❌ Error: ${data.error || 'Failed to clear folder'}`);
+      }
+    } catch (err: any) {
+      alert(`❌ Error clearing folder: ${err.message}`);
+    } finally {
+      setDeletingCldFolder(null);
+    }
+  };
+
   const handleSaveCloudinarySettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingCloudinary(true);
@@ -165,6 +262,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const data = await res.json();
         setCloudinarySettings(data.settings);
         alert('Cloudinary settings saved successfully!');
+        fetchCldStats();
       } else {
         const err = await res.json();
         alert(err.error || 'Failed to save Cloudinary settings');
@@ -173,6 +271,77 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       alert('Error saving Cloudinary settings');
     } finally {
       setIsSavingCloudinary(false);
+    }
+  };
+
+  // Admin Account & Password State
+  const [accountFormUsername, setAccountFormUsername] = useState('');
+  const [accountFormEmail, setAccountFormEmail] = useState('');
+  const [accountFormCurrentPassword, setAccountFormCurrentPassword] = useState('');
+  const [accountFormNewPassword, setAccountFormNewPassword] = useState('');
+  const [accountFormConfirmPassword, setAccountFormConfirmPassword] = useState('');
+  const [isSavingAccount, setIsSavingAccount] = useState(false);
+  const [accountStatusMsg, setAccountStatusMsg] = useState<{ success: boolean; text: string } | null>(null);
+
+  const fetchAdminProfile = async () => {
+    try {
+      const res = await fetch('/api/admin/me');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.admin) {
+          setAccountFormUsername(data.admin.username || '');
+          setAccountFormEmail(data.admin.email || '');
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch admin profile:', err);
+    }
+  };
+
+  const handleSaveAccountSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAccountStatusMsg(null);
+
+    if (!accountFormCurrentPassword) {
+      setAccountStatusMsg({ success: false, text: 'လက်ရှိ စကားဝှက် (Current Password) ထည့်သွင်းရန် လိုအပ်ပါသည်' });
+      return;
+    }
+
+    if (accountFormNewPassword && accountFormNewPassword !== accountFormConfirmPassword) {
+      setAccountStatusMsg({ success: false, text: 'စကားဝှက်အသစ်နှစ်ခု ကိုက်ညီမှု မရှိပါ (New passwords do not match)' });
+      return;
+    }
+
+    setIsSavingAccount(true);
+    try {
+      const res = await fetch('/api/admin/account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentPassword: accountFormCurrentPassword,
+          newUsername: accountFormUsername,
+          newEmail: accountFormEmail,
+          newPassword: accountFormNewPassword || undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setAccountStatusMsg({ success: true, text: data.message || 'အကောင့်အချက်အလက်များ အောင်မြင်စွာ ပြောင်းလဲပြီးပါပြီ!' });
+        setAccountFormCurrentPassword('');
+        setAccountFormNewPassword('');
+        setAccountFormConfirmPassword('');
+        if (data.admin) {
+          setAccountFormUsername(data.admin.username);
+          setAccountFormEmail(data.admin.email);
+        }
+      } else {
+        setAccountStatusMsg({ success: false, text: data.error || 'Failed to update account settings' });
+      }
+    } catch (err: any) {
+      setAccountStatusMsg({ success: false, text: err.message || 'Error updating account settings' });
+    } finally {
+      setIsSavingAccount(false);
     }
   };
 
@@ -402,6 +571,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             setCloudinaryFormFolder(cldData.folder || 'payment_proofs');
           }
         }
+        if (activeTab === 'cloudinary') {
+          fetchCldStats();
+        }
+      } else if (activeTab === 'account') {
+        fetchAdminProfile();
       } else if (activeTab === 'audit') {
         const res = await fetch('/api/admin/audit-logs');
         if (res.status === 401) { onLogout(); return; }
@@ -851,7 +1025,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               }`}
             >
               <Cloud className="w-5 h-5" />
-              <span className="whitespace-nowrap">Cloudinary Storage</span>
+              <span className="whitespace-nowrap">Storage</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('account')}
+              className={`shrink-0 md:w-full flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 md:py-3 rounded-lg text-sm font-medium transition cursor-pointer ${
+                activeTab === 'account'
+                  ? 'bg-indigo-500/10 text-indigo-400 font-semibold'
+                  : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              <Key className="w-5 h-5 text-indigo-400" />
+              <span className="whitespace-nowrap">Admin Credentials</span>
             </button>
 
             <button
@@ -933,7 +1119,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {activeTab === 'donations' && (
             <div className="space-y-6">
               {/* Summary Stats Header Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="bg-white dark:bg-[#1E293B] p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl">
                   <p className="text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Pending Review</p>
                   <h3 className="text-3xl font-bold text-rose-400">
@@ -955,20 +1141,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       .toLocaleString()}{' '}
                     <span className="text-sm font-normal text-slate-500 dark:text-slate-400">MMK</span>
                   </h3>
-                </div>
-                <div className="bg-white dark:bg-[#1E293B] p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl relative overflow-hidden">
-                  <p className="text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider mb-2 flex items-center justify-between">
-                    <span>OBS Overlay Queue</span>
-                    <Tv className="w-4 h-4 text-amber-400" />
-                  </p>
-                  <div className="flex items-baseline gap-2">
-                    <h3 className="text-3xl font-bold text-amber-400">
-                      {obsQueueCount}
-                    </h3>
-                    <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                      {obsQueueCount === 1 ? 'alert pending' : 'alerts pending'}
-                    </span>
-                  </div>
                 </div>
               </div>
 
@@ -2281,108 +2453,537 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           )}
 
-          {/* TAB: CLOUDINARY STORAGE SETTINGS */}
+          {/* TAB: CLOUDINARY STORAGE & FOLDER MANAGEMENT */}
           {activeTab === 'cloudinary' && (
             <div className="space-y-6">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center justify-between">
-                  <span>Cloudinary Image Storage</span>
-                  {cloudinaryFormCloudName && cloudinaryFormApiKey && cloudinaryFormApiSecret ? (
-                    <span className="px-3 py-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-full text-xs font-mono font-medium flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                      Cloudinary Configured
-                    </span>
-                  ) : (
-                    <span className="px-3 py-1 bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 rounded-full text-xs font-mono font-medium flex items-center gap-1.5">
-                      Local Storage (Fallback)
-                    </span>
-                  )}
-                </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Configure Cloudinary credentials to upload Payment Proof screenshots directly to Cloudinary cloud storage.
-                </p>
+              {/* Header Status Bar */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-[#1E293B] border border-slate-200 dark:border-slate-800 p-6 rounded-2xl shadow-xl">
+                <div>
+                  <div className="flex items-center gap-3">
+                    <Cloud className="w-6 h-6 text-sky-400" />
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+                      Storage & Media Folders
+                    </h2>
+                    {cldStats?.isConnected ? (
+                      <span className="px-3 py-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 rounded-full text-xs font-mono font-bold flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        Connected
+                      </span>
+                    ) : (
+                      <span className="px-3 py-1 bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 rounded-full text-xs font-mono font-bold flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+                        Not Connected
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    Cloud storage capacity, folder-wise file count, storage size breakdown, and item management
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleTestCldConnection}
+                    disabled={testingCldConn}
+                    className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs rounded-xl flex items-center gap-2 shadow transition cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${testingCldConn ? 'animate-spin' : ''}`} />
+                    <span>{testingCldConn ? 'Testing...' : 'Test Connection'}</span>
+                  </button>
+
+                  <button
+                    onClick={fetchCldStats}
+                    disabled={loadingCldStats}
+                    className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs rounded-xl flex items-center gap-2 shadow transition cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loadingCldStats ? 'animate-spin' : ''}`} />
+                    <span>Refresh Stats</span>
+                  </button>
+                </div>
               </div>
 
-              <form
-                onSubmit={handleSaveCloudinarySettings}
-                className="bg-white dark:bg-[#1E293B] border border-slate-200 dark:border-slate-800 rounded-2xl p-6 space-y-4 text-xs shadow-xl"
-              >
-                <div>
-                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
-                    Cloud Name (CLOUDINARY_CLOUD_NAME)
-                  </label>
-                  <input
-                    type="text"
-                    value={cloudinaryFormCloudName}
-                    onChange={(e) => setCloudinaryFormCloudName(e.target.value)}
-                    placeholder="e.g. dxyz12345"
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono focus:outline-none focus:border-indigo-500"
-                  />
+              {/* Connection Test Result Banner */}
+              {cldTestResult && (
+                <div
+                  className={`p-4 rounded-xl border text-xs flex items-center gap-3 ${
+                    cldTestResult.success
+                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                      : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                  }`}
+                >
+                  {cldTestResult.success ? (
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                  ) : (
+                    <XCircle className="w-5 h-5 text-rose-400 shrink-0" />
+                  )}
+                  <div>
+                    <span className="font-bold">{cldTestResult.success ? 'Connection Success:' : 'Connection Failed:'}</span>{' '}
+                    {cldTestResult.message}
+                  </div>
+                </div>
+              )}
+
+              {/* Total Storage Usage & Limits Overview Card */}
+              <div className="bg-gradient-to-br from-slate-900 via-[#1E293B] to-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl text-slate-100 space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-sky-500/20 text-sky-400 rounded-xl border border-sky-500/30">
+                      <HardDrive className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-base text-white">Storage Capacity & Usage</h3>
+                      <p className="text-xs text-slate-400">Total Storage Usage vs Plan Allowance</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xs text-slate-400 font-mono">Cloud Name:</span>
+                    <span className="ml-2 font-mono font-bold text-sky-300 bg-sky-950 px-2.5 py-1 rounded border border-sky-800">
+                      {cldStats?.cloudName || cloudinaryFormCloudName || 'Not Set'}
+                    </span>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
-                    API Key (CLOUDINARY_API_KEY)
-                  </label>
-                  <input
-                    type="text"
-                    value={cloudinaryFormApiKey}
-                    onChange={(e) => setCloudinaryFormApiKey(e.target.value)}
-                    placeholder="e.g. 123456789012345"
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Storage Bar */}
+                  <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between text-xs font-semibold">
+                      <span className="text-slate-400 flex items-center gap-1.5">
+                        <Database className="w-4 h-4 text-sky-400" />
+                        Storage Used
+                      </span>
+                      <span className="text-sky-300 font-mono">
+                        {formatBytes(cldStats?.usage.storageBytes || 0)} / {formatBytes(cldStats?.usage.storageLimitBytes || 10737418240)}
+                      </span>
+                    </div>
 
-                <div>
-                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
-                    API Secret (CLOUDINARY_API_SECRET)
-                  </label>
-                  <input
-                    type="password"
-                    value={cloudinaryFormApiSecret}
-                    onChange={(e) => setCloudinaryFormApiSecret(e.target.value)}
-                    placeholder="••••••••••••••••••••••••••••"
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
+                    {/* Progress Bar */}
+                    <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                      <div
+                        className="bg-gradient-to-r from-sky-500 to-indigo-500 h-full transition-all duration-500"
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            Math.max(
+                              1,
+                              ((cldStats?.usage.storageBytes || 0) / (cldStats?.usage.storageLimitBytes || 10737418240)) * 100
+                            )
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[11px] text-slate-500 font-mono">
+                      <span>
+                        {(
+                          ((cldStats?.usage.storageBytes || 0) / (cldStats?.usage.storageLimitBytes || 10737418240)) *
+                          100
+                        ).toFixed(2)}
+                        % Used
+                      </span>
+                      <span>Max: {formatBytes(cldStats?.usage.storageLimitBytes || 10737418240)}</span>
+                    </div>
+                  </div>
 
-                <div>
-                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
-                    Cloudinary Folder
-                  </label>
-                  <input
-                    type="text"
-                    value={cloudinaryFormFolder}
-                    onChange={(e) => setCloudinaryFormFolder(e.target.value)}
-                    placeholder="payment_proofs"
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono focus:outline-none focus:border-indigo-500"
-                  />
-                  <span className="text-[11px] text-slate-400 dark:text-slate-500 mt-1 block">
-                    Folder name in your Cloudinary account where payment proof screenshots will be stored.
+                  {/* Bandwidth Usage */}
+                  <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between text-xs font-semibold">
+                      <span className="text-slate-400 flex items-center gap-1.5">
+                        <Sparkles className="w-4 h-4 text-amber-400" />
+                        Bandwidth Used
+                      </span>
+                      <span className="text-amber-300 font-mono">
+                        {formatBytes(cldStats?.usage.bandwidthBytes || 0)} / {formatBytes(cldStats?.usage.bandwidthLimitBytes || 26843545600)}
+                      </span>
+                    </div>
+
+                    <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                      <div
+                        className="bg-gradient-to-r from-amber-500 to-orange-500 h-full transition-all duration-500"
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            Math.max(
+                              1,
+                              ((cldStats?.usage.bandwidthBytes || 0) / (cldStats?.usage.bandwidthLimitBytes || 26843545600)) * 100
+                            )
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[11px] text-slate-500 font-mono">
+                      <span>Monthly Bandwidth</span>
+                      <span>Max: {formatBytes(cldStats?.usage.bandwidthLimitBytes || 26843545600)}</span>
+                    </div>
+                  </div>
+
+                  {/* Total Files & Plan */}
+                  <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800 flex flex-col justify-between space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-400">Total Cloud Objects:</span>
+                      <span className="text-emerald-400 font-mono font-bold text-sm">
+                        {cldStats?.usage.objectsCount || 0} Files
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-800/80">
+                      <span className="text-slate-400">Account Plan:</span>
+                      <span className="text-indigo-300 font-bold">
+                        {cldStats?.usage.plan || 'Free Plan'}
+                      </span>
+                    </div>
+                    {cldStats?.usage.creditsLimit ? (
+                      <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-800/80">
+                        <span className="text-slate-400">Credits Allowance:</span>
+                        <span className="text-sky-300 font-mono">
+                          {cldStats.usage.creditsUsed || 0} / {cldStats.usage.creditsLimit} Credits
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              {/* Active Folders Section */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    <Folder className="w-5 h-5 text-indigo-400" />
+                    <span>Active Media Folders</span>
+                  </h3>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    Folder-wise file count and storage size breakdown
                   </span>
                 </div>
 
-                <div className="p-3.5 bg-sky-50 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-800/30 rounded-xl text-xs text-sky-900 dark:text-sky-200 space-y-1">
-                  <p className="font-semibold flex items-center gap-1.5">
-                    <span>☁️ Cloudinary Storage Details</span>
-                  </p>
-                  <p className="text-slate-600 dark:text-slate-300">
-                    - You can also configure these in your <code className="bg-white dark:bg-slate-800 px-1 py-0.5 rounded border border-sky-200 dark:border-sky-800">.env</code> file via <code className="bg-white dark:bg-slate-800 px-1 py-0.5 rounded border border-sky-200 dark:border-sky-800">CLOUDINARY_CLOUD_NAME</code>, <code className="bg-white dark:bg-slate-800 px-1 py-0.5 rounded border border-sky-200 dark:border-sky-800">CLOUDINARY_API_KEY</code>, and <code className="bg-white dark:bg-slate-800 px-1 py-0.5 rounded border border-sky-200 dark:border-sky-800">CLOUDINARY_API_SECRET</code>.<br />
-                    - When set, all Payment Proof screenshots uploaded by donors will automatically be sent to Cloudinary and return secure HTTPS Cloudinary URLs (<code className="bg-white dark:bg-slate-800 px-1 py-0.5 rounded border border-sky-200 dark:border-sky-800">https://res.cloudinary.com/...</code>).
-                  </p>
-                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {/* Folder 1: payment_proofs */}
+                  {(() => {
+                    const f = cldStats?.folders.find((item) => item.name === 'payment_proofs') || {
+                      name: 'payment_proofs',
+                      label: 'Payment Proof Screenshots',
+                      description: 'Donor payment screenshot proofs uploaded during donation',
+                      count: 0,
+                      sizeBytes: 0,
+                    };
+                    return (
+                      <div key={f.name} className="bg-white dark:bg-[#1E293B] border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col justify-between space-y-4 hover:border-indigo-500/40 transition">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="p-2.5 bg-indigo-500/10 text-indigo-500 dark:text-indigo-400 rounded-xl">
+                              <ImageIcon className="w-5 h-5" />
+                            </div>
+                            <span className="px-2.5 py-1 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-mono text-xs font-bold rounded-lg border border-indigo-500/20">
+                              {f.count} Files • {formatBytes(f.sizeBytes || 0)}
+                            </span>
+                          </div>
+                          <h4 className="font-bold text-slate-900 dark:text-white text-sm">
+                            {f.label}
+                          </h4>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                            Folder: <code className="text-indigo-400 font-bold">{f.name}</code>
+                          </p>
+                          <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                            {f.description}
+                          </p>
+                        </div>
 
-                <div className="flex items-center gap-3 pt-2">
-                  <button
-                    type="submit"
-                    disabled={isSavingCloudinary}
-                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold rounded-lg transition cursor-pointer shadow-md flex items-center gap-2"
-                  >
-                    <Cloud className="w-4 h-4" />
-                    {isSavingCloudinary ? 'Saving...' : 'Save Cloudinary Settings'}
-                  </button>
+                        <button
+                          onClick={() => handleClearCldFolder(f.name, f.label)}
+                          disabled={deletingCldFolder === f.name}
+                          className="w-full py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 font-bold text-xs rounded-xl border border-rose-500/30 flex items-center justify-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>{deletingCldFolder === f.name ? 'Deleting...' : 'Delete All'}</span>
+                        </button>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Folder 2: media_videos */}
+                  {(() => {
+                    const f = cldStats?.folders.find((item) => item.name === 'media_videos') || {
+                      name: 'media_videos',
+                      label: 'Video Media Assets',
+                      description: 'OBS alert background videos and video overlays',
+                      count: 0,
+                      sizeBytes: 0,
+                    };
+                    return (
+                      <div key={f.name} className="bg-white dark:bg-[#1E293B] border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col justify-between space-y-4 hover:border-sky-500/40 transition">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="p-2.5 bg-sky-500/10 text-sky-500 dark:text-sky-400 rounded-xl">
+                              <Film className="w-5 h-5" />
+                            </div>
+                            <span className="px-2.5 py-1 bg-sky-500/10 text-sky-600 dark:text-sky-400 font-mono text-xs font-bold rounded-lg border border-sky-500/20">
+                              {f.count} Files • {formatBytes(f.sizeBytes || 0)}
+                            </span>
+                          </div>
+                          <h4 className="font-bold text-slate-900 dark:text-white text-sm">
+                            {f.label}
+                          </h4>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                            Folder: <code className="text-sky-400 font-bold">{f.name}</code>
+                          </p>
+                          <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                            {f.description}
+                          </p>
+                        </div>
+
+                        <button
+                          onClick={() => handleClearCldFolder(f.name, f.label)}
+                          disabled={deletingCldFolder === f.name}
+                          className="w-full py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 font-bold text-xs rounded-xl border border-rose-500/30 flex items-center justify-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>{deletingCldFolder === f.name ? 'Deleting...' : 'Delete All'}</span>
+                        </button>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Folder 3: media_sounds */}
+                  {(() => {
+                    const f = cldStats?.folders.find((item) => item.name === 'media_sounds') || {
+                      name: 'media_sounds',
+                      label: 'Sound Effect Assets',
+                      description: 'OBS alert sound audio files and sound effects',
+                      count: 0,
+                      sizeBytes: 0,
+                    };
+                    return (
+                      <div key={f.name} className="bg-white dark:bg-[#1E293B] border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col justify-between space-y-4 hover:border-amber-500/40 transition">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="p-2.5 bg-amber-500/10 text-amber-500 dark:text-amber-400 rounded-xl">
+                              <Volume2 className="w-5 h-5" />
+                            </div>
+                            <span className="px-2.5 py-1 bg-amber-500/10 text-amber-600 dark:text-amber-400 font-mono text-xs font-bold rounded-lg border border-amber-500/20">
+                              {f.count} Files • {formatBytes(f.sizeBytes || 0)}
+                            </span>
+                          </div>
+                          <h4 className="font-bold text-slate-900 dark:text-white text-sm">
+                            {f.label}
+                          </h4>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                            Folder: <code className="text-amber-400 font-bold">{f.name}</code>
+                          </p>
+                          <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                            {f.description}
+                          </p>
+                        </div>
+
+                        <button
+                          onClick={() => handleClearCldFolder(f.name, f.label)}
+                          disabled={deletingCldFolder === f.name}
+                          className="w-full py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 font-bold text-xs rounded-xl border border-rose-500/30 flex items-center justify-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>{deletingCldFolder === f.name ? 'Deleting...' : 'Delete All'}</span>
+                        </button>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Folder 4: media_stickers */}
+                  {(() => {
+                    const f = cldStats?.folders.find((item) => item.name === 'media_stickers') || {
+                      name: 'media_stickers',
+                      label: 'Sticker Media Assets',
+                      description: 'Animated stickers and image overlays',
+                      count: 0,
+                      sizeBytes: 0,
+                    };
+                    return (
+                      <div key={f.name} className="bg-white dark:bg-[#1E293B] border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col justify-between space-y-4 hover:border-emerald-500/40 transition">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="p-2.5 bg-emerald-500/10 text-emerald-500 dark:text-emerald-400 rounded-xl">
+                              <Sparkles className="w-5 h-5" />
+                            </div>
+                            <span className="px-2.5 py-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-mono text-xs font-bold rounded-lg border border-emerald-500/20">
+                              {f.count} Files • {formatBytes(f.sizeBytes || 0)}
+                            </span>
+                          </div>
+                          <h4 className="font-bold text-slate-900 dark:text-white text-sm">
+                            {f.label}
+                          </h4>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                            Folder: <code className="text-emerald-400 font-bold">{f.name}</code>
+                          </p>
+                          <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                            {f.description}
+                          </p>
+                        </div>
+
+                        <button
+                          onClick={() => handleClearCldFolder(f.name, f.label)}
+                          disabled={deletingCldFolder === f.name}
+                          className="w-full py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 font-bold text-xs rounded-xl border border-rose-500/30 flex items-center justify-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>{deletingCldFolder === f.name ? 'Deleting...' : 'Delete All'}</span>
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
-              </form>
+              </div>
+
+
+            </div>
+          )}
+
+          {/* TAB: ADMIN ACCOUNT & SECURITY SETTINGS */}
+          {activeTab === 'account' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    <Key className="w-5 h-5 text-indigo-400" />
+                    <span>Admin Account & Security Settings</span>
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Admin အကောင့် Username၊ Email နှင့် Password မူလစကားဝှက်များကို ဤနေရာတွင် လုံခြုံစွာ ပြောင်းလဲနိုင်ပါသည်။
+                  </p>
+                </div>
+              </div>
+
+              {/* Status Banner */}
+              {accountStatusMsg && (
+                <div
+                  className={`p-4 rounded-xl text-xs font-semibold flex items-center gap-2 border ${
+                    accountStatusMsg.success
+                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                      : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+                  }`}
+                >
+                  {accountStatusMsg.success ? (
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  ) : (
+                    <XCircle className="w-4 h-4 shrink-0" />
+                  )}
+                  <span>{accountStatusMsg.text}</span>
+                </div>
+              )}
+
+              {/* Information Notice */}
+              <div className="bg-gradient-to-r from-indigo-900/40 to-slate-900 border border-indigo-500/30 rounded-2xl p-5 shadow-xl space-y-2 text-xs">
+                <div className="flex items-center gap-2 text-indigo-300 font-bold text-sm">
+                  <ShieldCheck className="w-5 h-5 text-indigo-400" />
+                  <span>Security Notice</span>
+                </div>
+                <p className="text-slate-300 leading-relaxed">
+                  If you are logged in with the default admin account (<code className="bg-slate-800 text-amber-300 px-1.5 py-0.5 rounded border border-slate-700">admin</code> / <code className="bg-slate-800 text-amber-300 px-1.5 py-0.5 rounded border border-slate-700">admin123</code>) or initial credentials, please update your username and password immediately for security.
+                </p>
+              </div>
+
+              {/* Form Card */}
+              <div className="bg-white dark:bg-[#1E293B] border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-6">
+                <form onSubmit={handleSaveAccountSettings} className="space-y-5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div>
+                      <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1.5 text-xs">
+                        Admin Username *
+                      </label>
+                      <div className="relative">
+                        <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                        <input
+                          type="text"
+                          required
+                          value={accountFormUsername}
+                          onChange={(e) => setAccountFormUsername(e.target.value)}
+                          placeholder="e.g. admin"
+                          className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs focus:outline-none focus:border-indigo-500 font-medium"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1.5 text-xs">
+                        Email Address
+                      </label>
+                      <input
+                        type="email"
+                        value={accountFormEmail}
+                        onChange={(e) => setAccountFormEmail(e.target.value)}
+                        placeholder="admin@liveobs.com"
+                        className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs focus:outline-none focus:border-indigo-500 font-medium"
+                      />
+                    </div>
+                  </div>
+
+                  <hr className="border-slate-200 dark:border-slate-800" />
+
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Change Password (Leave blank to keep current)</span>
+                    </h4>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      <div>
+                        <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1.5 text-xs">
+                          New Password
+                        </label>
+                        <input
+                          type="password"
+                          value={accountFormNewPassword}
+                          onChange={(e) => setAccountFormNewPassword(e.target.value)}
+                          placeholder="Min 6 characters"
+                          className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs focus:outline-none focus:border-indigo-500 font-mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1.5 text-xs">
+                          Confirm New Password
+                        </label>
+                        <input
+                          type="password"
+                          value={accountFormConfirmPassword}
+                          onChange={(e) => setAccountFormConfirmPassword(e.target.value)}
+                          placeholder="Re-enter new password"
+                          className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs focus:outline-none focus:border-indigo-500 font-mono"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-2">
+                    <label className="block text-amber-300 font-bold text-xs flex items-center gap-1">
+                      <Key className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Current Password * [Required for verification]</span>
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      value={accountFormCurrentPassword}
+                      onChange={(e) => setAccountFormCurrentPassword(e.target.value)}
+                      placeholder="Enter your current password"
+                      className="w-full px-3.5 py-2.5 bg-slate-900 border border-amber-500/30 rounded-xl text-white text-xs focus:outline-none focus:border-amber-400 font-mono"
+                    />
+                  </div>
+
+                  <div className="flex justify-end pt-2">
+                    <button
+                      type="submit"
+                      disabled={isSavingAccount}
+                      className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg flex items-center gap-2 transition cursor-pointer"
+                    >
+                      {isSavingAccount ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Saving Changes...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Save Changes</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
           )}
 

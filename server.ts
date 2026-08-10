@@ -15,7 +15,7 @@ import {
 import { sendTelegramNotification, handleTelegramWebhook, sendTelegramTestMessage, setTelegramWebhook } from './server/telegram';
 import { realtimeServer } from './server/realtime';
 import { uploadMiddleware } from './server/uploads';
-import { isCloudinaryConfigured, uploadToCloudinary } from './server/cloudinary';
+import { isCloudinaryConfigured, uploadToCloudinary, testCloudinaryConnection, getCloudinaryStorageStats, deleteCloudinaryFolderItems } from './server/cloudinary';
 import { Donation } from './src/types';
 import { auditLogService } from './server/audit';
 
@@ -260,6 +260,14 @@ async function startServer() {
       return res.status(400).json({ error: 'Username and password are required' });
     }
 
+    if (username.toLowerCase() === 'admin' && password === 'admin123') {
+      auditLogService.log({
+        action: 'ADMIN_LOGIN_FAILED',
+        metadata: { username, reason: 'Default admin/admin123 credentials disabled for security', ip: clientIp },
+      });
+      return res.status(401).json({ error: 'Default credentials (admin / admin123) are disabled for security reasons. Please update your password or log in with secure credentials.' });
+    }
+
     const admin = db.getAdminByUsername(username);
     if (!admin) {
       auditLogService.log({
@@ -339,6 +347,63 @@ async function startServer() {
     });
 
     res.json({ success: true, message: 'Password updated successfully' });
+  });
+
+  app.post('/api/admin/account', requireAdminAuth, (req: AuthenticatedRequest, res) => {
+    const { currentPassword, newUsername, newEmail, newPassword } = req.body;
+    if (!currentPassword) {
+      return res.status(400).json({ error: 'လက်ရှိ စကားဝှက် (Current Password) ထည့်သွင်းရန် လိုအပ်ပါသည်' });
+    }
+
+    const admin = db.getAdminById(req.admin!.id);
+    if (!admin || admin.passwordHash !== hashPassword(currentPassword)) {
+      auditLogService.log({
+        adminId: req.admin!.id,
+        action: 'ADMIN_ACCOUNT_UPDATE_FAILED',
+        metadata: { username: req.admin?.username, reason: 'Current password incorrect' },
+      });
+      return res.status(400).json({ error: 'လက်ရှိ စကားဝှက် မှားယွင်းနေပါသည် (Current password is incorrect)' });
+    }
+
+    // Check username uniqueness if changing
+    if (newUsername && newUsername.trim().toLowerCase() !== admin.username.toLowerCase()) {
+      const existing = db.getAdminByUsername(newUsername.trim());
+      if (existing && existing.id !== admin.id) {
+        return res.status(400).json({ error: 'ဤ Admin Username အား အသုံးပြုပြီး ဖြစ်ပါသည်' });
+      }
+    }
+
+    const updates: { username?: string; email?: string; passwordHash?: string } = {};
+    if (newUsername && newUsername.trim()) {
+      updates.username = newUsername.trim();
+    }
+    if (newEmail && newEmail.trim()) {
+      updates.email = newEmail.trim();
+    }
+    if (newPassword) {
+      if (newPassword.length < 6) {
+        return res.status(400).json({ error: 'စကားဝှက်အသစ်သည် အနည်းဆုံး ၆ လုံး ရှိရပါမည် (Password must be at least 6 characters)' });
+      }
+      updates.passwordHash = hashPassword(newPassword);
+    }
+
+    const updatedAdmin = db.updateAdminProfile(req.admin!.id, updates);
+
+    auditLogService.log({
+      adminId: req.admin!.id,
+      action: 'ADMIN_ACCOUNT_UPDATED',
+      metadata: { username: updatedAdmin?.username, email: updatedAdmin?.email, passwordChanged: !!newPassword },
+    });
+
+    res.json({
+      success: true,
+      message: 'Admin account settings updated successfully!',
+      admin: {
+        id: updatedAdmin?.id,
+        username: updatedAdmin?.username,
+        email: updatedAdmin?.email,
+      },
+    });
   });
 
   // --- PROTECTED ADMIN API ENDPOINTS ---
@@ -525,7 +590,7 @@ async function startServer() {
     res.json({ success: true, settings: updated });
   });
 
-  // CLOUDINARY SETTINGS
+  // CLOUDINARY SETTINGS & STORAGE MANAGEMENT
   app.get('/api/admin/cloudinary-settings', requireAdminAuth, (_req, res) => {
     const settings = db.getCloudinarySettings();
     res.json(settings);
@@ -548,6 +613,46 @@ async function startServer() {
     });
 
     res.json({ success: true, settings: updated });
+  });
+
+  app.get('/api/admin/cloudinary-stats', requireAdminAuth, async (_req, res) => {
+    try {
+      const stats = await getCloudinaryStorageStats();
+      res.json(stats);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to fetch Cloudinary storage stats' });
+    }
+  });
+
+  app.post('/api/admin/cloudinary-test', requireAdminAuth, async (_req, res) => {
+    try {
+      const result = await testCloudinaryConnection();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message || 'Connection test failed' });
+    }
+  });
+
+  app.delete('/api/admin/cloudinary-folder/:folderName', requireAdminAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { folderName } = req.params;
+      const allowedFolders = ['payment_proofs', 'media_videos', 'media_sounds', 'media_stickers'];
+      if (!allowedFolders.includes(folderName)) {
+        return res.status(400).json({ error: 'Invalid folder name. Allowed: ' + allowedFolders.join(', ') });
+      }
+
+      const result = await deleteCloudinaryFolderItems(folderName);
+
+      auditLogService.log({
+        adminId: req.admin!.id,
+        action: 'CLEAR_CLOUDINARY_FOLDER',
+        metadata: { folderName, deletedCount: result.deletedCount },
+      });
+
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to delete folder items' });
+    }
   });
 
   // PAYMENT METHODS CRUD
@@ -680,14 +785,30 @@ async function startServer() {
     res.json(db.getMediaAssets(type));
   });
 
-  app.post('/api/admin/media/upload', requireAdminAuth, uploadMiddleware.single('file'), (req: AuthenticatedRequest, res) => {
+  app.post('/api/admin/media/upload', requireAdminAuth, uploadMiddleware.single('file'), async (req: AuthenticatedRequest, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: 'No media file provided' });
       }
 
       const { name, type, duration, volume, isGreenScreen } = req.body;
-      const fileUrl = `/uploads/${req.file.filename}`;
+      let fileUrl = `/uploads/${req.file.filename}`;
+
+      if (isCloudinaryConfigured()) {
+        const targetFolder = type === 'sound' ? 'media_sounds' : type === 'video' ? 'media_videos' : 'media_stickers';
+        const cldResult = await uploadToCloudinary(req.file.path, req.file.originalname, targetFolder);
+        if (cldResult.success && cldResult.url) {
+          fileUrl = cldResult.url;
+          // Delete temp file after Cloudinary upload
+          try {
+            if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+          } catch (e) {
+            console.error('Error deleting temp file:', e);
+          }
+        } else {
+          console.warn('[MediaUpload] Cloudinary upload failed, falling back to local file:', cldResult.error);
+        }
+      }
 
       const media = db.addMediaAsset({
         name: name || req.file.originalname,

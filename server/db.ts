@@ -339,6 +339,29 @@ class MongoDatabase {
     return false;
   }
 
+  updateAdminProfile(adminId: string, updates: { username?: string; email?: string; passwordHash?: string }) {
+    const admin = this.getAdminById(adminId);
+    if (admin) {
+      if (updates.username) admin.username = updates.username;
+      if (updates.email) admin.email = updates.email;
+      if (updates.passwordHash) admin.passwordHash = updates.passwordHash;
+
+      if (this.isConnected) {
+        const mongoUpdates: any = {};
+        if (updates.username) mongoUpdates.username = updates.username;
+        if (updates.email) mongoUpdates.email = updates.email;
+        if (updates.passwordHash) mongoUpdates.passwordHash = updates.passwordHash;
+
+        (AdminModel as any).updateOne({ id: adminId }, mongoUpdates).catch((err: any) =>
+          console.error('[MongoDB] Admin profile update error:', err)
+        );
+      }
+      this.saveToLocalBackup();
+      return admin;
+    }
+    return null;
+  }
+
   // --- PAYMENT METHODS ---
   getPaymentMethods(includeDisabled = false) {
     return this.cache.payment_methods
