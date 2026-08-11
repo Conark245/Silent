@@ -20,9 +20,9 @@ import { isCloudinaryConfigured, uploadToCloudinary, testCloudinaryConnection, g
 import { Donation } from './src/types';
 import { auditLogService } from './server/audit';
 
-async function startServer() {
+export async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(cors());
   app.use(express.json({ limit: '25mb' }));
@@ -818,7 +818,7 @@ async function startServer() {
         url: fileUrl,
         duration: duration ? Number(duration) : undefined,
         volume: volume ? Number(volume) : 0.8,
-        isGreenScreen: isGreenScreen === 'true' || isGreenScreen === true,
+        isGreenScreen: isGreenScreen !== undefined ? (isGreenScreen === 'true' || isGreenScreen === true) : true,
         enabled: true,
       });
 
@@ -883,9 +883,14 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[OBS Live Donation System] Server listening on http://0.0.0.0:${PORT}`);
-  });
+  return app;
 }
 
-startServer();
+if (!process.env.VERCEL) {
+  const port = Number(process.env.PORT) || 3000;
+  startServer().then((app) => {
+    app.listen(port, '0.0.0.0', () => {
+      console.log(`[OBS Live Donation System] Server listening on http://0.0.0.0:${port}`);
+    });
+  });
+}

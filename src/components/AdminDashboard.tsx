@@ -131,7 +131,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [mediaName, setMediaName] = useState('');
   const [mediaDuration, setMediaDuration] = useState('8');
   const [mediaVolume, setMediaVolume] = useState('0.8');
-  const [isGreenScreenUpload, setIsGreenScreenUpload] = useState(false);
+  const [isGreenScreenUpload, setIsGreenScreenUpload] = useState(true);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
 
   // Telegram settings form
@@ -743,7 +743,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       if (res.ok) {
         setUploadFile(null);
         setMediaName('');
-        setIsGreenScreenUpload(false);
         loadTabContent();
       } else {
         const err = await res.json();
