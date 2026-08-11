@@ -18,7 +18,8 @@ export const ObsOverlay: React.FC = () => {
   const processedEventIdsRef = useRef<Set<string>>(new Set());
   const isProcessingRef = useRef<boolean>(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const timeoutIdRef = useRef<NodeJS.Timeout | null>(null);
+  const finishEventHandledRef = useRef<boolean>(false);
 
   // Enable audio interaction handler for browser policies
   const enableAudio = () => {
@@ -135,6 +136,7 @@ export const ObsOverlay: React.FC = () => {
 
     processedEventIdsRef.current.add(event.eventId);
     isProcessingRef.current = true;
+    finishEventHandledRef.current = false;
     setCurrentEvent(event);
     setIsPlaying(true);
 
@@ -157,17 +159,6 @@ export const ObsOverlay: React.FC = () => {
       }
     }
 
-    // Play Video if configured
-    if (payload.video && payload.video.url && videoRef.current) {
-      try {
-        videoRef.current.src = payload.video.url;
-        videoRef.current.volume = payload.video.volume ?? 0.8;
-        videoRef.current.play().catch(() => {});
-      } catch (err) {
-        console.error('[OBS Overlay] Video play error:', err);
-      }
-    }
-
     // Mark processed on server
     try {
       await fetch(`/api/overlay/events/${event.eventId}/mark-processed`, {
@@ -178,11 +169,23 @@ export const ObsOverlay: React.FC = () => {
     }
 
     // Wait for configured duration, then finish event
-    setTimeout(() => {
-      setIsPlaying(false);
-      setCurrentEvent(null);
-      isProcessingRef.current = false;
+    timeoutIdRef.current = setTimeout(() => {
+      finishEvent();
     }, duration * 1000);
+  };
+
+  const finishEvent = () => {
+    if (finishEventHandledRef.current) return;
+    finishEventHandledRef.current = true;
+    
+    if (timeoutIdRef.current) {
+      clearTimeout(timeoutIdRef.current);
+      timeoutIdRef.current = null;
+    }
+
+    setIsPlaying(false);
+    setCurrentEvent(null);
+    isProcessingRef.current = false;
   };
 
   const payload = currentEvent?.payload;
@@ -229,6 +232,7 @@ export const ObsOverlay: React.FC = () => {
                     muted={muted}
                     autoPlay={true}
                     playsInline={true}
+                    onEnded={finishEvent}
                     className="max-h-56 max-w-full rounded-2xl border border-slate-800 shadow-xl object-contain"
                   />
                 ) : sticker?.url ? (

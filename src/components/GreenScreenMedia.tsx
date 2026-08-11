@@ -33,6 +33,13 @@ export const GreenScreenMedia: React.FC<GreenScreenMediaProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animFrameRef = useRef<number | null>(null);
 
+  const getTransformedSrc = () => {
+    return src;
+  };
+
+  const finalSrc = getTransformedSrc();
+  const useCanvas = isGreenScreen;
+
   // Sync volume level
   useEffect(() => {
     if (videoRef.current) {
@@ -40,9 +47,9 @@ export const GreenScreenMedia: React.FC<GreenScreenMediaProps> = ({
     }
   }, [volume]);
 
-  // Video Green Screen Chroma Keying
+  // Video Green Screen Chroma Keying (Local Canvas fallback)
   useEffect(() => {
-    if (!isGreenScreen || type !== 'video') return;
+    if (!useCanvas || type !== 'video') return;
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -56,7 +63,7 @@ export const GreenScreenMedia: React.FC<GreenScreenMediaProps> = ({
     const processFrame = () => {
       if (!isActive || !video) return;
 
-      if (!video.paused && !video.ended) {
+      if (video.readyState >= 2) {
         const width = video.videoWidth || 640;
         const height = video.videoHeight || 360;
 
@@ -65,29 +72,34 @@ export const GreenScreenMedia: React.FC<GreenScreenMediaProps> = ({
           canvas.height = height;
         }
 
-        ctx.drawImage(video, 0, 0, width, height);
-        const frame = ctx.getImageData(0, 0, width, height);
-        const data = frame.data;
-        const len = data.length;
+        try {
+          ctx.drawImage(video, 0, 0, width, height);
+          const frame = ctx.getImageData(0, 0, width, height);
+          const data = frame.data;
+          const len = data.length;
 
-        for (let i = 0; i < len; i += 4) {
-          const r = data[i];
-          const g = data[i + 1];
-          const b = data[i + 2];
+          for (let i = 0; i < len; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
 
-          // Key out dominant green color pixels
-          if (g > 55 && g > r * 1.15 && g > b * 1.15) {
-            const maxOther = Math.max(r, b);
-            const diff = g - maxOther;
-            if (diff > 35) {
-              data[i + 3] = 0; // Fully transparent
-            } else {
-              data[i + 3] = Math.max(0, Math.min(255, 255 - (diff / 35) * 255)); // Soft edge
+            // Key out dominant green color pixels
+            if (g > 55 && g > r * 1.15 && g > b * 1.15) {
+              const maxOther = Math.max(r, b);
+              const diff = g - maxOther;
+              if (diff > 35) {
+                data[i + 3] = 0; // Fully transparent
+              } else {
+                data[i + 3] = Math.max(0, Math.min(255, 255 - (diff / 35) * 255)); // Soft edge
+                data[i + 1] = g - (diff * (diff / 35));
+              }
             }
           }
-        }
 
-        ctx.putImageData(frame, 0, 0);
+          ctx.putImageData(frame, 0, 0);
+        } catch (e) {
+          // CORS issue - we can't manipulate pixels. The drawImage above still drew the video to canvas!
+        }
       }
 
       if (isActive) {
@@ -97,16 +109,12 @@ export const GreenScreenMedia: React.FC<GreenScreenMediaProps> = ({
 
     const handlePlay = () => {
       if (onPlay) onPlay();
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-      animFrameRef.current = requestAnimationFrame(processFrame);
     };
 
     video.addEventListener('play', handlePlay);
-    if (!video.paused) {
-      handlePlay();
-    } else {
-      animFrameRef.current = requestAnimationFrame(processFrame);
-    }
+
+    // Start immediately
+    animFrameRef.current = requestAnimationFrame(processFrame);
 
     return () => {
       isActive = false;
@@ -115,11 +123,11 @@ export const GreenScreenMedia: React.FC<GreenScreenMediaProps> = ({
         cancelAnimationFrame(animFrameRef.current);
       }
     };
-  }, [isGreenScreen, type, src, onPlay]);
+  }, [useCanvas, type, finalSrc, onPlay]);
 
-  // Image / Sticker Green Screen Chroma Keying
+  // Image / Sticker Green Screen Chroma Keying (Local Canvas fallback)
   useEffect(() => {
-    if (!isGreenScreen || (type !== 'sticker' && type !== 'image')) return;
+    if (!useCanvas || (type !== 'sticker' && type !== 'image')) return;
 
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -127,46 +135,64 @@ export const GreenScreenMedia: React.FC<GreenScreenMediaProps> = ({
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
 
+    let isCancelled = false;
+
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.src = src;
+    img.src = finalSrc;
 
     img.onload = () => {
+      if (isCancelled) return;
       canvas.width = img.width;
       canvas.height = img.height;
-      ctx.drawImage(img, 0, 0);
+      try {
+        ctx.drawImage(img, 0, 0);
 
-      const frame = ctx.getImageData(0, 0, img.width, img.height);
-      const data = frame.data;
-      const len = data.length;
+        const frame = ctx.getImageData(0, 0, img.width, img.height);
+        const data = frame.data;
+        const len = data.length;
 
-      for (let i = 0; i < len; i += 4) {
-        const r = data[i];
-        const g = data[i + 1];
-        const b = data[i + 2];
+        for (let i = 0; i < len; i += 4) {
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
 
-        if (g > 55 && g > r * 1.15 && g > b * 1.15) {
-          const maxOther = Math.max(r, b);
-          const diff = g - maxOther;
-          if (diff > 35) {
-            data[i + 3] = 0;
-          } else {
-            data[i + 3] = Math.max(0, Math.min(255, 255 - (diff / 35) * 255));
+          if (g > 55 && g > r * 1.15 && g > b * 1.15) {
+            const maxOther = Math.max(r, b);
+            const diff = g - maxOther;
+            if (diff > 35) {
+              data[i + 3] = 0;
+            } else {
+              data[i + 3] = Math.max(0, Math.min(255, 255 - (diff / 35) * 255));
+              data[i + 1] = g - (diff * (diff / 35));
+            }
           }
         }
+
+        ctx.putImageData(frame, 0, 0);
+      } catch (e) {
+        console.warn('Canvas image processing failed (likely CORS):', e);
       }
-
-      ctx.putImageData(frame, 0, 0);
     };
-  }, [isGreenScreen, type, src]);
 
-  // Standard Media (No Green Screen Removal)
-  if (!isGreenScreen) {
+    img.onerror = (err) => {
+      if (isCancelled) return;
+      console.warn('[GreenScreenMedia] Image load error:', err);
+    };
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [useCanvas, type, finalSrc]);
+
+  // Standard Media (No local Canvas needed)
+  if (!useCanvas) {
     if (type === 'video') {
       return (
         <video
           ref={videoRef}
-          src={src}
+          src={finalSrc}
+          crossOrigin="anonymous"
           className={className}
           autoPlay={autoPlay}
           playsInline={playsInline}
@@ -174,25 +200,31 @@ export const GreenScreenMedia: React.FC<GreenScreenMediaProps> = ({
           loop={loop}
           onEnded={onEnded}
           onPlay={onPlay}
+          onError={(e) => console.warn('[GreenScreenMedia] Video error:', e.currentTarget.error?.message)}
+          onStalled={() => console.warn('[GreenScreenMedia] Video stalled')}
         />
       );
     }
-    return <img src={src} alt={alt} className={className} />;
+    return <img src={finalSrc} crossOrigin="anonymous" alt={alt} className={className} />;
   }
 
-  // Chroma Key Enabled
+  // Chroma Key Enabled (Local Canvas fallback)
   return (
     <div className="relative inline-flex items-center justify-center">
       {type === 'video' && (
         <video
           ref={videoRef}
-          src={src}
+          src={finalSrc}
+          crossOrigin="anonymous"
           autoPlay={autoPlay}
           playsInline={playsInline}
           muted={muted}
           loop={loop}
           onEnded={onEnded}
-          className="absolute w-0 h-0 opacity-0 pointer-events-none"
+          onPlay={onPlay}
+          onError={(e) => console.warn('[GreenScreenMedia] Video error (Chroma Key):', e.currentTarget.error?.message)}
+          onStalled={() => console.warn('[GreenScreenMedia] Video stalled (Chroma Key)')}
+          className="absolute opacity-0 pointer-events-none w-[1px] h-[1px] -z-10"
         />
       )}
       <canvas ref={canvasRef} className={className} />

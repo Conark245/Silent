@@ -1729,7 +1729,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {donationItems.map((item) => (
+                {[...donationItems].sort((a, b) => a.price - b.price).map((item) => (
                   <div
                     key={item.id}
                     className="bg-white dark:bg-[#1E293B] border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-3 shadow-xl"

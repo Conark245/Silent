@@ -387,7 +387,7 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
                   </span>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {donationItems.map((item) => (
+                    {[...donationItems].sort((a, b) => a.price - b.price).map((item) => (
                       <div
                         key={item.id}
                         onClick={() => handleSelectRewardItem(item)}
