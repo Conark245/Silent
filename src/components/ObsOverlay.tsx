@@ -233,7 +233,7 @@ export const ObsOverlay: React.FC = () => {
                     autoPlay={true}
                     playsInline={true}
                     onEnded={finishEvent}
-                    className="max-h-56 max-w-full rounded-2xl border border-slate-800 shadow-xl object-contain"
+                    className="max-h-56 max-w-full object-contain"
                   />
                 ) : sticker?.url ? (
                   <motion.div

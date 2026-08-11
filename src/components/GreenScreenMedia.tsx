@@ -34,7 +34,7 @@ export const GreenScreenMedia: React.FC<GreenScreenMediaProps> = ({
   const animFrameRef = useRef<number | null>(null);
 
   const getTransformedSrc = () => {
-    return src;
+    if (isGreenScreen) { return src + (src.includes("?") ? "&" : "?") + "corsbuster=1"; } return src;
   };
 
   const finalSrc = getTransformedSrc();
@@ -84,21 +84,21 @@ export const GreenScreenMedia: React.FC<GreenScreenMediaProps> = ({
             const b = data[i + 2];
 
             // Key out dominant green color pixels
-            if (g > 55 && g > r * 1.15 && g > b * 1.15) {
+            if (g > 50 && g > r * 1.1 && g > b * 1.1) {
               const maxOther = Math.max(r, b);
               const diff = g - maxOther;
-              if (diff > 35) {
+              if (diff > 20) {
                 data[i + 3] = 0; // Fully transparent
               } else {
-                data[i + 3] = Math.max(0, Math.min(255, 255 - (diff / 35) * 255)); // Soft edge
-                data[i + 1] = g - (diff * (diff / 35));
+                data[i + 3] = Math.max(0, Math.min(255, 255 - (diff / 20) * 255)); // Soft edge
+                data[i + 1] = g - (diff * (diff / 20));
               }
             }
           }
 
           ctx.putImageData(frame, 0, 0);
-        } catch (e) {
-          // CORS issue - we can't manipulate pixels. The drawImage above still drew the video to canvas!
+        } catch (e: any) {
+          console.warn('[GreenScreenMedia] Canvas pixel extraction failed (CORS issue?). Green screen cannot be removed.', e.message);
         }
       }
 
@@ -162,14 +162,14 @@ export const GreenScreenMedia: React.FC<GreenScreenMediaProps> = ({
           const g = data[i + 1];
           const b = data[i + 2];
 
-          if (g > 55 && g > r * 1.15 && g > b * 1.15) {
+          if (g > 50 && g > r * 1.1 && g > b * 1.1) {
             const maxOther = Math.max(r, b);
             const diff = g - maxOther;
-            if (diff > 35) {
+            if (diff > 20) {
               data[i + 3] = 0;
             } else {
-              data[i + 3] = Math.max(0, Math.min(255, 255 - (diff / 35) * 255));
-              data[i + 1] = g - (diff * (diff / 35));
+              data[i + 3] = Math.max(0, Math.min(255, 255 - (diff / 20) * 255));
+              data[i + 1] = g - (diff * (diff / 20));
             }
           }
         }

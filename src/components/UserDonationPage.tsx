@@ -473,7 +473,7 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
                         loop
                         muted
                         playsInline
-                        className="max-h-24 max-w-full rounded-xl border border-slate-800 object-contain shadow-md"
+                        className="max-h-24 max-w-full object-contain"
                       />
                     ) : selectedSticker?.url ? (
                       <GreenScreenMedia
@@ -738,7 +738,7 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
                     loop
                     muted
                     playsInline
-                    className="max-h-48 max-w-full rounded-2xl border border-slate-800 shadow-xl object-contain"
+                    className="max-h-48 max-w-full object-contain"
                   />
                 ) : selectedSticker?.url ? (
                   <GreenScreenMedia
