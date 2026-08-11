@@ -85,6 +85,7 @@ const DonationSchema = new Schema({
   approvedBy: { type: String },
   declinedAt: { type: String },
   declinedBy: { type: String },
+  telegramMessages: { type: [Schema.Types.Mixed], default: [] },
 });
 
 // Donation Event Schema

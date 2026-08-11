@@ -61,6 +61,7 @@ export interface Donation {
   declinedAt?: string;
   approvedBy?: string;
   declinedBy?: string;
+  telegramMessages?: Array<{ chatId: string | number; messageId: number; isPhoto?: boolean }>;
 }
 
 export interface DonationEvent {

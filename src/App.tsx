@@ -5,28 +5,25 @@ import { AdminLogin } from './components/AdminLogin';
 import { ObsOverlay } from './components/ObsOverlay';
 
 export default function App() {
-  const [route, setRoute] = useState<'user' | 'admin' | 'overlay'>('user');
+  const [route, setRoute] = useState<'user' | 'admin' | 'overlay' | '404'>('404');
   const [adminAuthenticated, setAdminAuthenticated] = useState<boolean>(false);
   const [authChecking, setAuthChecking] = useState<boolean>(true);
 
+  const resolveRoute = (path: string): 'user' | 'admin' | 'overlay' | '404' => {
+    if (path === '/overlay' || path.startsWith('/overlay/')) return 'overlay';
+    if (path === '/live/zhik19qx' || path.startsWith('/live/zhik19qx/')) return 'user';
+    if (path === '/admin' || path.startsWith('/admin/') || path === '/login' || path.startsWith('/login/')) return 'admin';
+    return '404';
+  };
+
   // Sync initial route based on window URL
   useEffect(() => {
-    const path = window.location.pathname;
-    if (path.includes('overlay')) {
-      setRoute('overlay');
-    } else if (path.startsWith('/live/zhik19qx')) {
-      setRoute('user');
-    } else {
-      setRoute('admin');
-    }
+    setRoute(resolveRoute(window.location.pathname));
 
     checkAdminAuth();
 
     const handlePopState = () => {
-      const p = window.location.pathname;
-      if (p.includes('overlay')) setRoute('overlay');
-      else if (p.startsWith('/donate')) setRoute('user');
-      else setRoute('admin');
+      setRoute(resolveRoute(window.location.pathname));
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -50,11 +47,12 @@ export default function App() {
     }
   };
 
-  const navigateTo = (newRoute: 'user' | 'admin' | 'overlay') => {
+  const navigateTo = (newRoute: 'user' | 'admin' | 'overlay' | '404') => {
     setRoute(newRoute);
-    let path = '/';
+    let path = '/404';
     if (newRoute === 'user') path = '/live/zhik19qx';
     if (newRoute === 'overlay') path = '/overlay';
+    if (newRoute === 'admin') path = '/admin';
     window.history.pushState({}, '', path);
   };
 
@@ -102,10 +100,26 @@ export default function App() {
     );
   }
 
+  if (route === 'user') {
+    return (
+      <UserDonationPage
+        onNavigateAdmin={() => navigateTo('admin')}
+        onNavigateOverlay={() => navigateTo('overlay')}
+      />
+    );
+  }
+
   return (
-    <UserDonationPage
-      onNavigateAdmin={() => navigateTo('admin')}
-      onNavigateOverlay={() => navigateTo('overlay')}
-    />
+    <div className="min-h-screen bg-slate-50 dark:bg-[#0F172A] flex flex-col items-center justify-center p-6 text-center">
+      <div className="w-24 h-24 text-indigo-500 mb-6 mx-auto opacity-20">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+      </div>
+      <h1 className="text-4xl font-bold text-slate-800 dark:text-white mb-3">404 - Not Found</h1>
+      <p className="text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+        The page you are looking for does not exist or has been moved.
+      </p>
+    </div>
   );
 }

@@ -37,10 +37,12 @@ export async function sendTelegramNotification(donation: Donation) {
 
   const proofUrl = donation.paymentProofUrl || (donation as any).slipUrl;
   let sentCount = 0;
+  const telegramMessages: Array<{ chatId: string | number; messageId: number; isPhoto?: boolean }> = [];
 
   for (const adminId of settings.adminIds) {
     try {
       let sentSuccess = false;
+      let msgId: number | undefined;
 
       // Try sending photo if payment proof screenshot exists
       if (proofUrl) {
@@ -69,6 +71,7 @@ export async function sendTelegramNotification(donation: Donation) {
               const data = await res.json();
               if (data.ok) {
                 sentSuccess = true;
+                if (data.result && data.result.message_id) msgId = data.result.message_id;
                 sentCount++;
               } else {
                 console.warn(`[Telegram] sendPhoto via base64 failed for admin ${adminId}: ${data.description}`);
@@ -97,6 +100,7 @@ export async function sendTelegramNotification(donation: Donation) {
             const data = await res.json();
             if (data.ok) {
               sentSuccess = true;
+              if (data.result && data.result.message_id) msgId = data.result.message_id;
               sentCount++;
             } else {
               console.warn(`[Telegram] sendPhoto via URL failed for admin ${adminId}: ${data.description}`);
@@ -135,6 +139,7 @@ export async function sendTelegramNotification(donation: Donation) {
               const data = await res.json();
               if (data.ok) {
                 sentSuccess = true;
+                if (data.result && data.result.message_id) msgId = data.result.message_id;
                 sentCount++;
               } else {
                 console.error(`[Telegram] sendPhoto FormData error for admin ${adminId}:`, data.description);
@@ -161,6 +166,7 @@ export async function sendTelegramNotification(donation: Donation) {
               const data = await res.json();
               if (data.ok) {
                 sentSuccess = true;
+                if (data.result && data.result.message_id) msgId = data.result.message_id;
                 sentCount++;
               }
             } catch (e) {
@@ -186,17 +192,69 @@ export async function sendTelegramNotification(donation: Donation) {
 
         const data = await res.json();
         if (data.ok) {
+          if (data.result && data.result.message_id) msgId = data.result.message_id;
           sentCount++;
         } else {
           console.error(`[Telegram] Failed to send to admin ${adminId}:`, data.description);
         }
+      }
+
+      if (msgId) {
+        telegramMessages.push({
+          chatId: adminId,
+          messageId: msgId,
+          isPhoto: sentSuccess,
+        });
       }
     } catch (err) {
       console.error(`[Telegram] Error sending notification to ${adminId}:`, err);
     }
   }
 
+  if (telegramMessages.length > 0) {
+    donation.telegramMessages = telegramMessages;
+    db.updateDonationTelegramMessages(donation.id, telegramMessages);
+  }
+
   return sentCount > 0;
+}
+
+export async function notifyTelegramDonationHandled(
+  donation: Donation,
+  status: 'APPROVED' | 'DECLINED',
+  actorLabel: string
+) {
+  const settings = db.getTelegramSettings();
+  if (!settings.botToken || !donation.telegramMessages || donation.telegramMessages.length === 0) {
+    return;
+  }
+
+  const actionText = status === 'APPROVED' ? '✅ *STATUS: APPROVED*' : '❌ *STATUS: DECLINED*';
+  const byText = `👤 *By:* ${escapeMarkdown(actorLabel)}`;
+  const timeText = `⏰ *Time:* ${new Date().toLocaleTimeString()}`;
+
+  for (const msgInfo of donation.telegramMessages) {
+    try {
+      const updatedText = `🔔 *DONATION ${status}*\n\n👤 *Donor:* ${escapeMarkdown(
+        donation.donorName || 'Anonymous'
+      )}\n💰 *Amount:* *${donation.amount.toLocaleString()} ${donation.currency}*\n🆔 *ID:* \`${
+        donation.publicId
+      }\`\n\n${actionText}\n${byText}\n${timeText}`;
+
+      await editTelegramMessageOrCaption(
+        settings.botToken,
+        msgInfo.chatId,
+        msgInfo.messageId,
+        updatedText,
+        Boolean(msgInfo.isPhoto)
+      );
+    } catch (err) {
+      console.error(
+        `[Telegram] Failed to update message ${msgInfo.messageId} for chat ${msgInfo.chatId}:`,
+        err
+      );
+    }
+  }
 }
 
 export async function sendTelegramTestMessage(botToken: string, adminIds: string[]) {
@@ -316,21 +374,11 @@ export async function handleTelegramWebhook(body: any) {
           metadata: { publicId: updated.publicId, amount: updated.amount, adminUsername: username },
         });
 
-        // Edit Telegram message or photo caption
-        if (settings.botToken && cb.message) {
-          const updatedText =
-            baseText +
-            `\n\n✅ *STATUS: APPROVED*\n👤 *Approved By:* Telegram Admin @${escapeMarkdown(
-              username
-            )} (ID: ${userId})\n⏰ *Time:* ${new Date().toLocaleTimeString()}`;
+        // Notify and update all admin Telegram messages across all chats
+        const actorLabel = `@${username} (ID: ${userId})`;
+        await notifyTelegramDonationHandled(updated, 'APPROVED', actorLabel);
 
-          await editTelegramMessageOrCaption(
-            settings.botToken,
-            cb.message.chat.id,
-            cb.message.message_id,
-            updatedText,
-            isPhotoMsg
-          );
+        if (settings.botToken && cb.id) {
           await answerCallbackQuery(settings.botToken, cb.id, '✅ Donation APPROVED & Synced to Website!');
         }
 
@@ -352,20 +400,11 @@ export async function handleTelegramWebhook(body: any) {
           metadata: { publicId: updated.publicId, amount: updated.amount, adminUsername: username },
         });
 
-        if (settings.botToken && cb.message) {
-          const updatedText =
-            baseText +
-            `\n\n❌ *STATUS: DECLINED*\n👤 *Declined By:* Telegram Admin @${escapeMarkdown(
-              username
-            )} (ID: ${userId})\n⏰ *Time:* ${new Date().toLocaleTimeString()}`;
+        // Notify and update all admin Telegram messages across all chats
+        const actorLabel = `@${username} (ID: ${userId})`;
+        await notifyTelegramDonationHandled(updated, 'DECLINED', actorLabel);
 
-          await editTelegramMessageOrCaption(
-            settings.botToken,
-            cb.message.chat.id,
-            cb.message.message_id,
-            updatedText,
-            isPhotoMsg
-          );
+        if (settings.botToken && cb.id) {
           await answerCallbackQuery(settings.botToken, cb.id, '❌ Donation DECLINED & Synced to Website');
         }
 

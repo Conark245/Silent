@@ -469,9 +469,10 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
                         src={selectedVideo.url}
                         type="video"
                         isGreenScreen={Boolean(selectedVideo.isGreenScreen || selectedItem?.isGreenScreen)}
+                        volume={selectedVideo.volume ?? 0.8}
                         autoPlay
                         loop
-                        muted
+                        muted={false}
                         playsInline
                         className="max-h-24 max-w-full object-contain"
                       />
@@ -734,9 +735,10 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
                     src={selectedVideo.url}
                     type="video"
                     isGreenScreen={Boolean(selectedVideo.isGreenScreen || selectedItem?.isGreenScreen)}
+                    volume={selectedVideo.volume ?? 0.8}
                     autoPlay
                     loop
-                    muted
+                    muted={false}
                     playsInline
                     className="max-h-48 max-w-full object-contain"
                   />

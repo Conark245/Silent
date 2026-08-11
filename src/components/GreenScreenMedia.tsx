@@ -40,12 +40,13 @@ export const GreenScreenMedia: React.FC<GreenScreenMediaProps> = ({
   const finalSrc = getTransformedSrc();
   const useCanvas = isGreenScreen;
 
-  // Sync volume level
+  // Sync volume level and muted state
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.volume = volume ?? 0.8;
+      videoRef.current.muted = muted;
     }
-  }, [volume]);
+  }, [volume, muted]);
 
   // Video Green Screen Chroma Keying (Local Canvas fallback)
   useEffect(() => {
@@ -115,7 +116,13 @@ export const GreenScreenMedia: React.FC<GreenScreenMediaProps> = ({
 
     // Force play in case autoplay was ignored
     if (autoPlay && video.paused) {
-      video.play().catch((e) => console.warn('[GreenScreenMedia] play() failed:', e));
+      video.volume = volume ?? 0.8;
+      video.muted = muted;
+      video.play().catch((e) => {
+        console.warn('[GreenScreenMedia] Autoplay with sound failed, trying muted:', e);
+        video.muted = true;
+        video.play().catch((err) => console.warn('[GreenScreenMedia] Muted autoplay also failed:', err));
+      });
     }
 
     // Start immediately
@@ -203,6 +210,10 @@ export const GreenScreenMedia: React.FC<GreenScreenMediaProps> = ({
           playsInline={playsInline}
           muted={muted}
           loop={loop}
+          onLoadedMetadata={(e) => {
+            e.currentTarget.volume = volume ?? 0.8;
+            e.currentTarget.muted = muted;
+          }}
           onEnded={onEnded}
           onPlay={onPlay}
           onError={(e) => console.warn('[GreenScreenMedia] Video error:', e.currentTarget.error?.message)}
@@ -225,6 +236,10 @@ export const GreenScreenMedia: React.FC<GreenScreenMediaProps> = ({
           playsInline={playsInline}
           muted={muted}
           loop={loop}
+          onLoadedMetadata={(e) => {
+            e.currentTarget.volume = volume ?? 0.8;
+            e.currentTarget.muted = muted;
+          }}
           onEnded={onEnded}
           onPlay={onPlay}
           onError={(e) => console.warn('[GreenScreenMedia] Video error (Chroma Key):', e.currentTarget.error?.message)}

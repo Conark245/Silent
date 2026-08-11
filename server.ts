@@ -13,7 +13,7 @@ import {
   AuthenticatedRequest,
   verifyAdminSession,
 } from './server/auth';
-import { sendTelegramNotification, handleTelegramWebhook, sendTelegramTestMessage, setTelegramWebhook } from './server/telegram';
+import { sendTelegramNotification, handleTelegramWebhook, sendTelegramTestMessage, setTelegramWebhook, notifyTelegramDonationHandled } from './server/telegram';
 import { realtimeServer } from './server/realtime';
 import { uploadMiddleware } from './server/uploads';
 import { isCloudinaryConfigured, uploadToCloudinary, testCloudinaryConnection, getCloudinaryStorageStats, deleteCloudinaryFolderItems } from './server/cloudinary';
@@ -489,6 +489,10 @@ export async function startServer() {
       const event = db.addDonationEvent(updated);
       realtimeServer.broadcastDonationEvent(event);
     }
+
+    notifyTelegramDonationHandled(updated, status, `Web Admin: ${req.admin!.username}`).catch((e) =>
+      console.error('Error notifying telegram of web admin action:', e)
+    );
 
     auditLogService.log({
       adminId: req.admin!.id,

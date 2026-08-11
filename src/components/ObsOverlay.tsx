@@ -8,6 +8,7 @@ export const ObsOverlay: React.FC = () => {
   const [queue, setQueue] = useState<DonationEvent[]>([]);
   const [currentEvent, setCurrentEvent] = useState<DonationEvent | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [canPlayNext, setCanPlayNext] = useState(true);
   const [muted, setMuted] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
   const [recentDonors, setRecentDonors] = useState<Donation[]>([]);
@@ -16,7 +17,6 @@ export const ObsOverlay: React.FC = () => {
 
   // Track processed event IDs to prevent duplicate playback
   const processedEventIdsRef = useRef<Set<string>>(new Set());
-  const isProcessingRef = useRef<boolean>(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timeoutIdRef = useRef<NodeJS.Timeout | null>(null);
   const finishEventHandledRef = useRef<boolean>(false);
@@ -122,20 +122,21 @@ export const ObsOverlay: React.FC = () => {
 
   // 2. Queue Consumer Engine
   useEffect(() => {
-    if (queue.length > 0 && !isPlaying && !isProcessingRef.current) {
+    if (queue.length > 0 && !isPlaying && canPlayNext) {
       const nextEvent = queue[0];
+      setCanPlayNext(false);
       setQueue((prev) => prev.slice(1));
       playEvent(nextEvent);
     }
-  }, [queue, isPlaying]);
+  }, [queue, isPlaying, canPlayNext]);
 
   const playEvent = async (event: DonationEvent) => {
     if (processedEventIdsRef.current.has(event.eventId)) {
+      setCanPlayNext(true); // Allow next
       return; // Skip duplicate
     }
 
     processedEventIdsRef.current.add(event.eventId);
-    isProcessingRef.current = true;
     finishEventHandledRef.current = false;
     setCurrentEvent(event);
     setIsPlaying(true);
@@ -184,8 +185,12 @@ export const ObsOverlay: React.FC = () => {
     }
 
     setIsPlaying(false);
-    setCurrentEvent(null);
-    isProcessingRef.current = false;
+    
+    // Add a strict delay before processing the next item to allow exit animation to complete completely and prevent overlaps
+    setTimeout(() => {
+      setCurrentEvent(null);
+      setCanPlayNext(true);
+    }, 1500); 
   };
 
   const payload = currentEvent?.payload;

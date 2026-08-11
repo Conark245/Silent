@@ -239,6 +239,7 @@ class MongoDatabase {
           approvedBy: d.approvedBy,
           declinedAt: d.declinedAt,
           declinedBy: d.declinedBy,
+          telegramMessages: d.telegramMessages || [],
         }));
       }
 
@@ -592,6 +593,18 @@ class MongoDatabase {
     }
 
     return donation;
+  }
+
+  updateDonationTelegramMessages(id: string, telegramMessages: any[]) {
+    const donation = this.getDonationById(id);
+    if (!donation) return;
+    donation.telegramMessages = telegramMessages;
+    this.saveToLocalBackup();
+    if (this.isConnected) {
+      (DonationModel as any).updateOne({ id }, { telegramMessages }).catch((err: any) =>
+        console.error('[MongoDB] Donation telegramMessages update error:', err)
+      );
+    }
   }
 
   // --- DONATION EVENTS (OBS OVERLAY QUEUE) ---
