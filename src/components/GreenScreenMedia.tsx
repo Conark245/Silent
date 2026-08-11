@@ -113,6 +113,11 @@ export const GreenScreenMedia: React.FC<GreenScreenMediaProps> = ({
 
     video.addEventListener('play', handlePlay);
 
+    // Force play in case autoplay was ignored
+    if (autoPlay && video.paused) {
+      video.play().catch((e) => console.warn('[GreenScreenMedia] play() failed:', e));
+    }
+
     // Start immediately
     animFrameRef.current = requestAnimationFrame(processFrame);
 
@@ -224,7 +229,7 @@ export const GreenScreenMedia: React.FC<GreenScreenMediaProps> = ({
           onPlay={onPlay}
           onError={(e) => console.warn('[GreenScreenMedia] Video error (Chroma Key):', e.currentTarget.error?.message)}
           onStalled={() => console.warn('[GreenScreenMedia] Video stalled (Chroma Key)')}
-          className="absolute opacity-0 pointer-events-none w-[1px] h-[1px] -z-10"
+          className="absolute inset-0 w-full h-full opacity-[0.01] pointer-events-none -z-10"
         />
       )}
       <canvas ref={canvasRef} className={className} />
