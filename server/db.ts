@@ -85,6 +85,13 @@ class MongoDatabase {
     this.connect();
   }
 
+  public getConnectionStatus() {
+    return {
+      connected: this.isConnected,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
   private loadFromLocalBackup() {
     try {
       if (fs.existsSync(this.backupFilePath)) {

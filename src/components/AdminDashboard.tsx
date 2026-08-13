@@ -114,6 +114,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [auditCategory, setAuditCategory] = useState<'ALL' | 'LOGIN' | 'ITEM' | 'MEDIA' | 'PAYMENT' | 'TELEGRAM' | 'DONATION'>('ALL');
 
   const [loading, setLoading] = useState(false);
+  const [dbStatus, setDbStatus] = useState<{ connected: boolean; timestamp: string } | null>(null);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'DECLINED'>(
     'ALL'
   );
@@ -365,6 +366,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }, 4500);
   };
 
+  const fetchDbStatus = async () => {
+    try {
+      const res = await fetch('/api/admin/db-status', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('obs_admin_token')}`
+        }
+      });
+      if (res.ok) {
+        const data = await safeParseJson(res);
+        if (data) setDbStatus(data);
+      }
+    } catch (err) {
+      // suppress
+    }
+  };
+
   const fetchObsQueueCount = async () => {
     try {
       const res = await fetch('/api/overlay/queue');
@@ -381,7 +398,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   useEffect(() => {
     fetchObsQueueCount();
-    const interval = setInterval(fetchObsQueueCount, 3000);
+    fetchDbStatus();
+    const interval = setInterval(() => {
+      fetchObsQueueCount();
+      fetchDbStatus();
+    }, 3000);
     return () => clearInterval(interval);
   }, []);
 
@@ -1069,21 +1090,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </button>
           </nav>
 
-          {activeTab === 'telegram' && (
-            <div className="p-4 border-t border-slate-300 dark:border-slate-700 mt-auto">
-              <div className={`flex items-center gap-3 p-3 rounded-xl border ${telegramSettings?.botToken && telegramSettings?.isWebhookActive ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-rose-500/10 border-rose-500/30'}`}>
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${telegramSettings?.botToken && telegramSettings?.isWebhookActive ? 'bg-emerald-500/20' : 'bg-rose-500/20'}`}>
-                  <div className={`w-3 h-3 rounded-full ${telegramSettings?.botToken && telegramSettings?.isWebhookActive ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></div>
-                </div>
-                <div>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">Telegram Webhook</p>
-                  <p className={`text-xs font-medium ${telegramSettings?.botToken && telegramSettings?.isWebhookActive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {telegramSettings?.botToken && telegramSettings?.isWebhookActive ? 'Active & Synchronized' : 'Not Connected'}
-                  </p>
-                </div>
+          <div className="p-4 border-t border-slate-300 dark:border-slate-700 mt-auto flex flex-col gap-3">
+            {/* DB Status */}
+            <div className={`flex items-center gap-3 p-3 rounded-xl border ${dbStatus?.connected ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-rose-500/10 border-rose-500/30'}`}>
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${dbStatus?.connected ? 'bg-emerald-500/20' : 'bg-rose-500/20'}`}>
+                <div className={`w-3 h-3 rounded-full ${dbStatus?.connected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></div>
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider">Database</p>
+                <p className={`text-xs font-bold ${dbStatus?.connected ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
+                  {dbStatus?.connected ? 'Connected' : 'Disconnected'}
+                </p>
               </div>
             </div>
-          )}
+
+            {/* Telegram Webhook */}
+            <div className={`flex items-center gap-3 p-3 rounded-xl border ${telegramSettings?.botToken && telegramSettings?.isWebhookActive ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-rose-500/10 border-rose-500/30'}`}>
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${telegramSettings?.botToken && telegramSettings?.isWebhookActive ? 'bg-emerald-500/20' : 'bg-rose-500/20'}`}>
+                <div className={`w-3 h-3 rounded-full ${telegramSettings?.botToken && telegramSettings?.isWebhookActive ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></div>
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider">Telegram</p>
+                <p className={`text-xs font-bold ${telegramSettings?.botToken && telegramSettings?.isWebhookActive ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
+                  {telegramSettings?.botToken && telegramSettings?.isWebhookActive ? 'Synced' : 'Offline'}
+                </p>
+              </div>
+            </div>
+          </div>
         </aside>
 
         {/* Content Area */}
