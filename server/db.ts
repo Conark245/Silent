@@ -118,11 +118,9 @@ class MongoDatabase {
 
   private saveToLocalBackup() {
     try {
-      const dir = path.dirname(this.backupFilePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      fs.writeFileSync(this.backupFilePath, JSON.stringify(this.cache, null, 2), 'utf-8');
+      // In a Serverless environment (like Vercel), local filesystem writes are forbidden.
+      // Database changes are held in-memory and will be lost if not using a real MongoDB instance.
+      // If a real MONGODB_URI is provided, data is persisted there instead.
     } catch (e) {
       console.error('[Database] Error saving local backup:', e);
     }

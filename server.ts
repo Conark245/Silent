@@ -29,12 +29,11 @@ export async function startServer() {
   app.use(express.urlencoded({ extended: true, limit: '25mb' }));
   app.use(cookieParser());
 
-  // Serve uploaded files statically
+  // Serve uploaded files statically (fallback only)
   const uploadsDir = path.join(process.cwd(), 'uploads');
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
+  if (fs.existsSync(uploadsDir)) {
+    app.use('/uploads', express.static(uploadsDir));
   }
-  app.use('/uploads', express.static(uploadsDir));
 
   // Serve public static assets
   const publicDir = path.join(process.cwd(), 'public');
@@ -151,25 +150,21 @@ export async function startServer() {
 
     try {
       if (isCloudinaryConfigured()) {
-        const cldResult = await uploadToCloudinary(req.file.path, req.file.originalname);
+        const cldResult = await uploadToCloudinary(req.file.buffer, req.file.originalname);
         if (cldResult.success && cldResult.url) {
-          try {
-            if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-          } catch (e) {
-            console.error('Error cleaning up temp file:', e);
-          }
           return res.json({ success: true, url: cldResult.url, provider: 'cloudinary' });
         } else {
           console.warn('[UploadProof] Cloudinary upload failed, falling back to local:', cldResult.error);
         }
       }
 
-      const fileUrl = `/uploads/${req.file.filename}`;
+      // Fallback (only works if running a persistent server, useless on Vercel Serverless)
+      const base64Data = req.file.buffer.toString('base64');
+      const fileUrl = `data:${req.file.mimetype};base64,${base64Data}`;
       res.json({ success: true, url: fileUrl, provider: 'local' });
     } catch (err: any) {
       console.error('[UploadProof] Error:', err);
-      const fileUrl = `/uploads/${req.file.filename}`;
-      res.json({ success: true, url: fileUrl, provider: 'local' });
+      return res.status(500).json({ error: 'Upload failed' });
     }
   });
 
@@ -820,22 +815,21 @@ export async function startServer() {
       }
 
       const { name, type, duration, volume, isGreenScreen } = req.body;
-      let fileUrl = `/uploads/${req.file.filename}`;
+      let fileUrl = '';
 
       if (isCloudinaryConfigured()) {
         const targetFolder = type === 'sound' ? 'media_sounds' : type === 'video' ? 'media_videos' : 'media_stickers';
-        const cldResult = await uploadToCloudinary(req.file.path, req.file.originalname, targetFolder);
+        const cldResult = await uploadToCloudinary(req.file.buffer, req.file.originalname, targetFolder);
         if (cldResult.success && cldResult.url) {
           fileUrl = cldResult.url;
-          // Delete temp file after Cloudinary upload
-          try {
-            if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-          } catch (e) {
-            console.error('Error deleting temp file:', e);
-          }
         } else {
           console.warn('[MediaUpload] Cloudinary upload failed, falling back to local file:', cldResult.error);
         }
+      }
+      
+      if (!fileUrl) {
+         const base64Data = req.file.buffer.toString('base64');
+         fileUrl = `data:${req.file.mimetype};base64,${base64Data}`;
       }
 
       const media = db.addMediaAsset({
