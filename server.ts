@@ -3,7 +3,7 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import cookieParser from 'cookie-parser';
-import { createServer as createViteServer } from 'vite';
+// Vite import removed from top level to avoid Vercel crash
 import { db, hashPassword } from './server/db';
 import {
   generateAdminToken,
@@ -889,7 +889,8 @@ export async function startServer() {
   });
 
   // --- VITE MIDDLEWARE OR STATIC SERVING ---
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
