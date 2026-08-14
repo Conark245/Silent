@@ -319,11 +319,13 @@ class MongoDatabase {
     const admin = this.getAdminById(adminId);
     if (admin) {
       admin.passwordHash = newHash;
-      if (this.isConnected) {
+      if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
         (AdminModel as any).updateOne({ id: adminId }, { passwordHash: newHash }).catch((err: any) =>
           console.error('[MongoDB] Admin update error:', err)
         );
-      }
+            });
+    }
       return true;
     }
     return false;
@@ -336,7 +338,8 @@ class MongoDatabase {
       if (updates.email) admin.email = updates.email;
       if (updates.passwordHash) admin.passwordHash = updates.passwordHash;
 
-      if (this.isConnected) {
+      if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
         const mongoUpdates: any = {};
         if (updates.username) mongoUpdates.username = updates.username;
         if (updates.email) mongoUpdates.email = updates.email;
@@ -345,7 +348,8 @@ class MongoDatabase {
         (AdminModel as any).updateOne({ id: adminId }, mongoUpdates).catch((err: any) =>
           console.error('[MongoDB] Admin profile update error:', err)
         );
-      }
+            });
+    }
       return admin;
     }
     return null;
@@ -368,8 +372,10 @@ class MongoDatabase {
       id: 'pm-' + Date.now(),
     };
     this.cache.payment_methods.push(newPm);
-    if (this.isConnected) {
+    if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
       (PaymentMethodModel as any).create(newPm).catch((err: any) => console.error('[MongoDB] PaymentMethod create error:', err));
+          });
     }
     return newPm;
   }
@@ -378,11 +384,13 @@ class MongoDatabase {
     const index = this.cache.payment_methods.findIndex((p) => p.id === id);
     if (index !== -1) {
       this.cache.payment_methods[index] = { ...this.cache.payment_methods[index], ...updates };
-      if (this.isConnected) {
+      if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
         (PaymentMethodModel as any).updateOne({ id }, updates).catch((err: any) =>
           console.error('[MongoDB] PaymentMethod update error:', err)
         );
-      }
+            });
+    }
       return this.cache.payment_methods[index];
     }
     return null;
@@ -390,8 +398,10 @@ class MongoDatabase {
 
   deletePaymentMethod(id: string) {
     this.cache.payment_methods = this.cache.payment_methods.filter((p) => p.id !== id);
-    if (this.isConnected) {
+    if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
       (PaymentMethodModel as any).deleteOne({ id }).catch((err: any) => console.error('[MongoDB] PaymentMethod delete error:', err));
+          });
     }
   }
 
@@ -412,8 +422,10 @@ class MongoDatabase {
       id: 'item-' + Date.now(),
     };
     this.cache.donation_items.push(newItem);
-    if (this.isConnected) {
+    if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
       (DonationItemModel as any).create(newItem).catch((err: any) => console.error('[MongoDB] DonationItem create error:', err));
+          });
     }
     return newItem;
   }
@@ -422,11 +434,13 @@ class MongoDatabase {
     const index = this.cache.donation_items.findIndex((i) => i.id === id);
     if (index !== -1) {
       this.cache.donation_items[index] = { ...this.cache.donation_items[index], ...updates };
-      if (this.isConnected) {
+      if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
         (DonationItemModel as any).updateOne({ id }, updates).catch((err: any) =>
           console.error('[MongoDB] DonationItem update error:', err)
         );
-      }
+            });
+    }
       return this.cache.donation_items[index];
     }
     return null;
@@ -434,8 +448,10 @@ class MongoDatabase {
 
   deleteDonationItem(id: string) {
     this.cache.donation_items = this.cache.donation_items.filter((i) => i.id !== id);
-    if (this.isConnected) {
+    if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
       (DonationItemModel as any).deleteOne({ id }).catch((err: any) => console.error('[MongoDB] DonationItem delete error:', err));
+          });
     }
   }
 
@@ -458,16 +474,20 @@ class MongoDatabase {
       createdAt: new Date().toISOString(),
     };
     this.cache.media_assets.push(newMedia);
-    if (this.isConnected) {
+    if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
       (MediaAssetModel as any).create(newMedia).catch((err: any) => console.error('[MongoDB] MediaAsset create error:', err));
+          });
     }
     return newMedia;
   }
 
   deleteMediaAsset(id: string) {
     this.cache.media_assets = this.cache.media_assets.filter((m) => m.id !== id);
-    if (this.isConnected) {
+    if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
       (MediaAssetModel as any).deleteOne({ id }).catch((err: any) => console.error('[MongoDB] MediaAsset delete error:', err));
+          });
     }
   }
 
@@ -475,11 +495,13 @@ class MongoDatabase {
     const index = this.cache.media_assets.findIndex((m) => m.id === id);
     if (index !== -1) {
       this.cache.media_assets[index] = { ...this.cache.media_assets[index], ...updates };
-      if (this.isConnected) {
+      if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
         (MediaAssetModel as any).updateOne({ id }, updates).catch((err: any) =>
           console.error('[MongoDB] MediaAsset update error:', err)
         );
-      }
+            });
+    }
       return this.cache.media_assets[index];
     }
     return null;
@@ -499,8 +521,10 @@ class MongoDatabase {
 
   clearDonationHistory() {
     this.cache.donations = this.cache.donations.filter(d => d.status === 'PENDING');
-    if (this.isConnected) {
+    if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
       DonationModel.deleteMany({ status: { $in: ['APPROVED', 'DECLINED'] } }).catch((err: any) => console.error('[MongoDB] Donation history clear error:', err));
+          });
     }
   }
 
@@ -534,8 +558,10 @@ class MongoDatabase {
     };
 
     this.cache.donations.push(donation);
-    if (this.isConnected) {
+    if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
       (DonationModel as any).create(donation).catch((err: any) => console.error('[MongoDB] Donation create error:', err));
+          });
     }
     return donation;
   }
@@ -572,10 +598,12 @@ class MongoDatabase {
       updateObj.declinedBy = donation.declinedBy;
     }
 
-    if (this.isConnected) {
+    if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
       (DonationModel as any).updateOne({ id: donation.id }, updateObj).catch((err: any) =>
         console.error('[MongoDB] Donation update error:', err)
       );
+          });
     }
 
     return donation;
@@ -585,10 +613,12 @@ class MongoDatabase {
     const donation = this.getDonationById(id);
     if (!donation) return;
     donation.telegramMessages = telegramMessages;
-    if (this.isConnected) {
+    if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
       (DonationModel as any).updateOne({ id }, { telegramMessages }).catch((err: any) =>
         console.error('[MongoDB] Donation telegramMessages update error:', err)
       );
+          });
     }
   }
 
@@ -619,8 +649,10 @@ class MongoDatabase {
     };
 
     this.cache.donation_events.push(event);
-    if (this.isConnected) {
+    if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
       (DonationEventModel as any).create(event).catch((err: any) => console.error('[MongoDB] DonationEvent create error:', err));
+          });
     }
     return event;
   }
@@ -633,11 +665,13 @@ class MongoDatabase {
     const evt = this.cache.donation_events.find((e) => e.eventId === eventId || e.id === eventId);
     if (evt) {
       evt.processed = true;
-      if (this.isConnected) {
+      if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
         (DonationEventModel as any).updateOne({ $or: [{ eventId }, { id: eventId }] }, { processed: true }).catch((err: any) =>
           console.error('[MongoDB] DonationEvent markProcessed error:', err)
         );
-      }
+            });
+    }
     }
   }
 
@@ -648,10 +682,12 @@ class MongoDatabase {
   }
   updateSystemSettings(updates: Partial<SystemSettings>): SystemSettings {
     this.cache.system_settings = { ...this.cache.system_settings, ...updates };
-    if (this.isConnected) {
+    if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
       (SystemSettingsModel as any).updateOne({}, this.cache.system_settings, { upsert: true }).catch((err: any) =>
         console.error('[MongoDB] SystemSettings update error:', err)
       );
+          });
     }
     return this.cache.system_settings;
   }
@@ -677,10 +713,12 @@ class MongoDatabase {
   }
   updateTelegramSettings(settings: Partial<TelegramSettings>) {
     this.cache.telegram_settings = { ...this.cache.telegram_settings, ...settings };
-    if (this.isConnected) {
+    if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
       (TelegramSettingsModel as any).updateOne({}, this.cache.telegram_settings, { upsert: true }).catch((err: any) =>
         console.error('[MongoDB] TelegramSettings update error:', err)
       );
+          });
     }
     return this.cache.telegram_settings;
   }
@@ -697,10 +735,12 @@ class MongoDatabase {
 
   updateCloudinarySettings(settings: Partial<CloudinarySettings>) {
     this.cache.cloudinary_settings = { ...this.cache.cloudinary_settings, ...settings };
-    if (this.isConnected) {
+    if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
       (CloudinarySettingsModel as any).updateOne({}, this.cache.cloudinary_settings, { upsert: true }).catch((err: any) =>
         console.error('[MongoDB] CloudinarySettings update error:', err)
       );
+          });
     }
     return this.cache.cloudinary_settings;
   }
@@ -716,8 +756,10 @@ class MongoDatabase {
     if (this.cache.audit_logs.length > 500) {
       this.cache.audit_logs = this.cache.audit_logs.slice(-500);
     }
-    if (this.isConnected) {
+    if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
       (AuditLogModel as any).create(auditLog).catch((err: any) => console.error('[MongoDB] AuditLog create error:', err));
+          });
     }
     return auditLog;
   }
@@ -729,8 +771,10 @@ class MongoDatabase {
 
   clearAuditLogs() {
     this.cache.audit_logs = [];
-    if (this.isConnected) {
+    if (process.env.MONGODB_URI) {
+      this.waitForConnection().then(() => {
       AuditLogModel.deleteMany({}).catch((err: any) => console.error('[MongoDB] AuditLog clear error:', err));
+          });
     }
   }
 }

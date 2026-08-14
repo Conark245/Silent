@@ -48,6 +48,11 @@ export function createExpressApp() {
   if (fs.existsSync(publicDir)) {
     app.use('/assets', express.static(path.join(publicDir, 'assets')));
   }
+  const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+  app.use('/uploads', express.static(uploadsDir));
 
   // --- PUBLIC API ROUTES ---
 
@@ -166,10 +171,13 @@ export function createExpressApp() {
         }
       }
 
-      console.error('[UploadProof] Cloudinary is not configured; refusing to embed a base64 fallback.');
-      return res.status(503).json({
-        error: 'File uploads are temporarily unavailable. Cloudinary must be configured (CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET).',
-      });
+      console.warn('[UploadProof] Falling back to local storage.');
+      const ext = req.file.originalname.split('.').pop() || 'png';
+      const filename = `proof-${Date.now()}-${Math.floor(Math.random() * 1000)}.${ext}`;
+      const filepath = path.join(uploadsDir, filename);
+      fs.writeFileSync(filepath, req.file.buffer);
+      const url = `/uploads/${filename}`;
+      return res.json({ success: true, url, provider: 'local' });
     } catch (err: any) {
       console.error('[UploadProof] Error:', err);
       return res.status(500).json({ error: 'Upload failed' });
@@ -816,10 +824,12 @@ export function createExpressApp() {
       }
       
       if (!fileUrl) {
-         console.error('[MediaUpload] Cloudinary is not configured; refusing to embed a base64 fallback.');
-         return res.status(503).json({
-           error: 'Media uploads are temporarily unavailable. Cloudinary must be configured (CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET).',
-         });
+         console.warn('[MediaUpload] Falling back to local storage.');
+         const ext = req.file.originalname.split('.').pop() || 'png';
+         const filename = `media-${Date.now()}-${Math.floor(Math.random() * 1000)}.${ext}`;
+         const filepath = path.join(uploadsDir, filename);
+         fs.writeFileSync(filepath, req.file.buffer);
+         fileUrl = `/uploads/${filename}`;
       }
 
       const media = db.addMediaAsset({
@@ -828,7 +838,7 @@ export function createExpressApp() {
         url: fileUrl,
         duration: duration ? Number(duration) : undefined,
         volume: volume ? Number(volume) : 0.8,
-        isGreenScreen: isGreenScreen !== undefined ? (isGreenScreen === 'true' || isGreenScreen === true) : true,
+        isGreenScreen: isGreenScreen !== undefined ? (isGreenScreen === 'true' || isGreenScreen === true) : false,
         enabled: true,
       });
 
