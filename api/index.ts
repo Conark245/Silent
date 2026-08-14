@@ -1,10 +1,5 @@
-import { startServer } from '../server';
+import { createExpressApp } from '../server';
 
-let cachedApp: any = null;
+const app = createExpressApp();
 
-export default async function handler(req: any, res: any) {
-  if (!cachedApp) {
-    cachedApp = await startServer();
-  }
-  return cachedApp(req, res);
-}
+export default app;
