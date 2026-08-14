@@ -128,17 +128,27 @@ class MongoDatabase {
 
   private async connect() {
     const mongoUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/obs_donation_db';
+    
+    // In serverless environments, connection could already be established or connecting
+    if (mongoose.connection.readyState === 1 || mongoose.connection.readyState === 2) {
+      this.isConnected = true;
+      await this.seedAndLoadFromMongoDB();
+      return;
+    }
+
     try {
       if (mongoose.connection.readyState === 0) {
+        // Required for Vercel/Serverless to wait a bit longer for DNS/Atlas connections
         await mongoose.connect(mongoUri, {
-          serverSelectionTimeoutMS: 3000,
+          serverSelectionTimeoutMS: 15000, // 15 seconds instead of 3
+          socketTimeoutMS: 45000,
         });
         console.log(`[MongoDB] Connected successfully to ${mongoUri}`);
       }
       this.isConnected = true;
       await this.seedAndLoadFromMongoDB();
     } catch (err: any) {
-      console.warn(`[MongoDB] Could not connect directly to MongoDB at ${mongoUri}. Operating with MongoDB state cache:`, err?.message || err);
+      console.error(`[MongoDB] Could not connect to MongoDB at ${mongoUri}. Error:`, err?.message || err);
       this.isConnected = false;
     }
   }
