@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -23,16 +24,24 @@ import { auditLogService } from './server/audit';
 export function createExpressApp() {
   const app = express();
   
-  app.use(cors());
+  const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  app.use(cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true); // same-origin, curl, server-to-server
+      if (origin.endsWith('.run.app')) return callback(null, true); // AI Studio preview domains
+      if (allowedOrigins.length === 0) return callback(null, true); // no allowlist configured — permissive default
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      callback(new Error('Not allowed by CORS'));
+    },
+    credentials: true,
+  }));
   app.use(express.json({ limit: '25mb' }));
   app.use(express.urlencoded({ extended: true, limit: '25mb' }));
   app.use(cookieParser());
-
-  // Serve uploaded files statically (fallback only)
-  const uploadsDir = path.join(process.cwd(), 'uploads');
-  if (fs.existsSync(uploadsDir)) {
-    app.use('/uploads', express.static(uploadsDir));
-  }
 
   // Serve public static assets
   const publicDir = path.join(process.cwd(), 'public');
@@ -157,10 +166,10 @@ export function createExpressApp() {
         }
       }
 
-      // Fallback (only works if running a persistent server, useless on Vercel Serverless)
-      const base64Data = req.file.buffer.toString('base64');
-      const fileUrl = `data:${req.file.mimetype};base64,${base64Data}`;
-      res.json({ success: true, url: fileUrl, provider: 'local' });
+      console.error('[UploadProof] Cloudinary is not configured; refusing to embed a base64 fallback.');
+      return res.status(503).json({
+        error: 'File uploads are temporarily unavailable. Cloudinary must be configured (CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET).',
+      });
     } catch (err: any) {
       console.error('[UploadProof] Error:', err);
       return res.status(500).json({ error: 'Upload failed' });
@@ -169,6 +178,10 @@ export function createExpressApp() {
 
   // Telegram webhook endpoint
   app.post('/api/telegram/webhook', async (req, res) => {
+    const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    if (expectedSecret && req.headers['x-telegram-bot-api-secret-token'] !== expectedSecret) {
+      return res.status(401).json({ error: 'Invalid webhook secret' });
+    }
     try {
       const result = await handleTelegramWebhook(req.body);
       res.json(result);
@@ -179,7 +192,7 @@ export function createExpressApp() {
   });
 
   // Simulation endpoint for Telegram callbacks (allows testing approval flow directly from web)
-  app.post('/api/telegram/simulate-callback', async (req, res) => {
+  app.post('/api/telegram/simulate-callback', requireAdminAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const { action, donationId, adminName } = req.body;
       const testPayload = {
@@ -256,31 +269,6 @@ export function createExpressApp() {
       return res.status(400).json({ error: 'Username and password are required' });
     }
 
-    if (username.toLowerCase() === 'admin' && password === 'admin123') {
-      auditLogService.log({
-        action: 'ADMIN_LOGIN_FAILED',
-        metadata: { username, reason: 'Default admin/admin123 credentials disabled for security', ip: clientIp },
-      });
-      return res.status(401).json({ error: 'Default credentials (admin / admin123) are disabled for security reasons. Please update your password or log in with secure credentials.' });
-    }
-
-    if (username === 'Conar' && password === 'Obs_Conar160362') {
-      const adminId = 'hardcoded-conar';
-      const token = generateAdminToken(adminId, username);
-      setAdminAuthCookie(res, token);
-      
-      auditLogService.log({
-        adminId,
-        action: 'ADMIN_LOGIN',
-        metadata: { username, ip: clientIp, type: 'hardcoded' },
-      });
-
-      return res.json({
-        success: true,
-        admin: { id: adminId, username, email: 'conar@example.com' },
-        token,
-      });
-    }
 
     const admin = db.getAdminByUsername(username);
     if (!admin) {
@@ -827,8 +815,10 @@ export function createExpressApp() {
       }
       
       if (!fileUrl) {
-         const base64Data = req.file.buffer.toString('base64');
-         fileUrl = `data:${req.file.mimetype};base64,${base64Data}`;
+         console.error('[MediaUpload] Cloudinary is not configured; refusing to embed a base64 fallback.');
+         return res.status(503).json({
+           error: 'Media uploads are temporarily unavailable. Cloudinary must be configured (CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET).',
+         });
       }
 
       const media = db.addMediaAsset({

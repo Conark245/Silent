@@ -1,4 +1,4 @@
-// @ts-ignore
-import serverPkg from '../dist/server.cjs';
-const app = serverPkg.createExpressApp();
+import { createExpressApp } from '../server';
+
+const app = createExpressApp();
 export default app;

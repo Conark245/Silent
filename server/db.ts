@@ -78,10 +78,8 @@ class MongoDatabase {
   };
 
   private isConnected = false;
-  private backupFilePath = path.join(process.cwd(), 'uploads', 'db_backup.json');
 
   constructor() {
-    this.loadFromLocalBackup();
     this.connect();
   }
 
@@ -92,44 +90,14 @@ class MongoDatabase {
     };
   }
 
-  private loadFromLocalBackup() {
-    try {
-      if (fs.existsSync(this.backupFilePath)) {
-        const raw = fs.readFileSync(this.backupFilePath, 'utf-8');
-        const data = JSON.parse(raw);
-        if (data && typeof data === 'object') {
-          if (Array.isArray(data.admins) && data.admins.length > 0) this.cache.admins = data.admins;
-          if (Array.isArray(data.payment_methods)) this.cache.payment_methods = data.payment_methods;
-          if (Array.isArray(data.donation_items)) this.cache.donation_items = data.donation_items;
-          if (Array.isArray(data.media_assets)) this.cache.media_assets = data.media_assets;
-          if (Array.isArray(data.donations)) this.cache.donations = data.donations;
-          if (Array.isArray(data.donation_events)) this.cache.donation_events = data.donation_events;
-          if (Array.isArray(data.audit_logs)) this.cache.audit_logs = data.audit_logs;
-          if (data.telegram_settings) this.cache.telegram_settings = { ...this.cache.telegram_settings, ...data.telegram_settings };
-          if (data.cloudinary_settings) this.cache.cloudinary_settings = { ...this.cache.cloudinary_settings, ...data.cloudinary_settings };
-          if (data.system_settings) this.cache.system_settings = { ...this.cache.system_settings, ...data.system_settings };
-          console.log('[Database] Restored state from local disk backup');
-        }
-      }
-    } catch (e) {
-      console.error('[Database] Error loading local backup:', e);
-    }
-  }
-
-  private saveToLocalBackup() {
-    try {
-      // In a Serverless environment (like Vercel), local filesystem writes are forbidden.
-      // Database changes are held in-memory and will be lost if not using a real MongoDB instance.
-      // If a real MONGODB_URI is provided, data is persisted there instead.
-    } catch (e) {
-      console.error('[Database] Error saving local backup:', e);
-    }
-  }
-
   private async connect() {
-    const mongoUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/obs_donation_db';
-    
-    // In serverless environments, connection could already be established or connecting
+    const mongoUri = process.env.MONGODB_URI;
+    if (!mongoUri) {
+      console.warn('[MongoDB] MONGODB_URI is not set — running in-memory only. Data will not persist across restarts or serverless cold starts.');
+      this.isConnected = false;
+      return;
+    }
+
     if (mongoose.connection.readyState === 1 || mongoose.connection.readyState === 2) {
       this.isConnected = true;
       await this.seedAndLoadFromMongoDB();
@@ -138,17 +106,16 @@ class MongoDatabase {
 
     try {
       if (mongoose.connection.readyState === 0) {
-        // Required for Vercel/Serverless to wait a bit longer for DNS/Atlas connections
         await mongoose.connect(mongoUri, {
-          serverSelectionTimeoutMS: 15000, // 15 seconds instead of 3
-          socketTimeoutMS: 45000,
+          serverSelectionTimeoutMS: 5000,
+          socketTimeoutMS: 20000,
         });
-        console.log(`[MongoDB] Connected successfully to ${mongoUri}`);
+        console.log('[MongoDB] Connected successfully');
       }
       this.isConnected = true;
       await this.seedAndLoadFromMongoDB();
     } catch (err: any) {
-      console.error(`[MongoDB] Could not connect to MongoDB at ${mongoUri}. Error:`, err?.message || err);
+      console.error('[MongoDB] Could not connect. Error:', err?.message || err);
       this.isConnected = false;
     }
   }
@@ -372,7 +339,6 @@ class MongoDatabase {
           console.error('[MongoDB] Admin profile update error:', err)
         );
       }
-      this.saveToLocalBackup();
       return admin;
     }
     return null;
@@ -561,7 +527,6 @@ class MongoDatabase {
     };
 
     this.cache.donations.push(donation);
-    this.saveToLocalBackup();
     if (this.isConnected) {
       (DonationModel as any).create(donation).catch((err: any) => console.error('[MongoDB] Donation create error:', err));
     }
@@ -600,7 +565,6 @@ class MongoDatabase {
       updateObj.declinedBy = donation.declinedBy;
     }
 
-    this.saveToLocalBackup();
     if (this.isConnected) {
       (DonationModel as any).updateOne({ id: donation.id }, updateObj).catch((err: any) =>
         console.error('[MongoDB] Donation update error:', err)
@@ -614,7 +578,6 @@ class MongoDatabase {
     const donation = this.getDonationById(id);
     if (!donation) return;
     donation.telegramMessages = telegramMessages;
-    this.saveToLocalBackup();
     if (this.isConnected) {
       (DonationModel as any).updateOne({ id }, { telegramMessages }).catch((err: any) =>
         console.error('[MongoDB] Donation telegramMessages update error:', err)
@@ -707,7 +670,6 @@ class MongoDatabase {
   }
   updateTelegramSettings(settings: Partial<TelegramSettings>) {
     this.cache.telegram_settings = { ...this.cache.telegram_settings, ...settings };
-    this.saveToLocalBackup();
     if (this.isConnected) {
       (TelegramSettingsModel as any).updateOne({}, this.cache.telegram_settings, { upsert: true }).catch((err: any) =>
         console.error('[MongoDB] TelegramSettings update error:', err)
@@ -728,7 +690,6 @@ class MongoDatabase {
 
   updateCloudinarySettings(settings: Partial<CloudinarySettings>) {
     this.cache.cloudinary_settings = { ...this.cache.cloudinary_settings, ...settings };
-    this.saveToLocalBackup();
     if (this.isConnected) {
       (CloudinarySettingsModel as any).updateOne({}, this.cache.cloudinary_settings, { upsert: true }).catch((err: any) =>
         console.error('[MongoDB] CloudinarySettings update error:', err)

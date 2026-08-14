@@ -306,7 +306,7 @@ export async function handleTelegramWebhook(body: any) {
 
     // Verify authorized admin ID (match numeric ID, handle, or @handle case-insensitively)
     const isAuthorized =
-      settings.adminIds.length === 0 ||
+      settings.adminIds.length > 0 &&
       settings.adminIds.some((id) => {
         const cleanId = id.trim().toLowerCase().replace(/^@/, '');
         const cleanUser = String(username).toLowerCase().replace(/^@/, '');
@@ -485,12 +485,16 @@ function escapeMarkdown(text: string): string {
 export async function setTelegramWebhook(botToken: string, webhookUrl: string, retries = 3): Promise<boolean> {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
+      const payload: any = { url: webhookUrl };
+      const secretToken = process.env.TELEGRAM_WEBHOOK_SECRET;
+      if (secretToken) {
+        payload.secret_token = secretToken;
+      }
+      
       const res = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url: webhookUrl,
-        }),
+        body: JSON.stringify(payload),
         signal: AbortSignal.timeout(15000),
       });
       const data = await res.json();

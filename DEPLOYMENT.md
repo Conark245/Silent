@@ -17,7 +17,7 @@ Render တွင် Full-stack Node.js Web Service အဖြစ် တင်ရ�
    - **Build Command:** `npm install && npm run build`
    - **Start Command:** `npm run start`
    - **Plan:** Free သို့မဟုတ် Paid
-5. **Environment Variables** တွင် လိုအပ်သော Secrets များကို ထည့်ပါ (ဥပမာ - `JWT_SECRET`, `TELEGRAM_BOT_TOKEN`, `CLOUDINARY_URL` စသည်ဖြင့်)။
+5. **Environment Variables** တွင် လိုအပ်သော Secrets များကို ထည့်ပါ (ဥပမာ - `SESSION_SECRET`, `TELEGRAM_BOT_TOKEN`, `CLOUDINARY_CLOUD_NAME` စသည်ဖြင့်)။
 6. **Create Web Service** ကို နှိပ်ပါ။ Render က `render.yaml` ကို အလိုအလျောက် အသုံးပြုပြီး Deploy လုပ်ပေးပါလိမ့်မည်။
 
 ---
@@ -79,12 +79,31 @@ VPS (DigitalOcean, AWS EC2, Linode, Vultr စသည်) တွင် Docker သ�
 ```env
 PORT=3000
 NODE_ENV=production
-JWT_SECRET=your_super_secret_jwt_key_here
-ADMIN_DEFAULT_USERNAME=admin
-ADMIN_DEFAULT_PASSWORD=your_secure_password
+SESSION_SECRET=your_super_secret_session_key_here
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=your_secure_password
 TELEGRAM_BOT_TOKEN=
-TELEGRAM_CHAT_ID=
+TELEGRAM_ADMIN_IDS=
+TELEGRAM_WEBHOOK_SECRET=
 CLOUDINARY_CLOUD_NAME=
 CLOUDINARY_API_KEY=
 CLOUDINARY_API_SECRET=
+MONGODB_URI=
+ALLOWED_ORIGINS=
 ```
+
+---
+
+## 4. ☁️ Cloudflare နှင့်အတူ Deploy လုပ်နည်း
+
+Cloudflare ကို အသုံးပြု၍ အပလီကေးရှင်းကို ပိုမိုမြန်ဆန်ပြီး လုံခြုံစေရန် အဓိကနည်းလမ်း (၂) မျိုး ရှိပါသည်။
+
+### ရွေးချယ်စရာ (က) - DNS/CDN Proxy အနေဖြင့် သုံးခြင်း (အကြံပြုချက်)
+သင့် VPS တွင် အပလီကေးရှင်းကို Run ထားပြီး Cloudflare ကို ၎င်းရှေ့မှ Proxy (Orange Cloud) အဖြစ် ခံထားခြင်း ဖြစ်သည်။
+- ဤနည်းလမ်းသည် ယခု Backend Code များအတွက် ထပ်မံပြင်ဆင်ရန် မလိုပါ။
+- DDoS Protection၊ Caching နှင့် SSL Certificate တို့ကို အလိုအလျောက် ရရှိမည်ဖြစ်သည်။
+
+### ရွေးချယ်စရာ (ခ) - Cloudflare Pages + VPS Backend
+Frontend ကို Cloudflare Pages တွင် Static Build အဖြစ် တင်ပြီး API များကို VPS ဆီသို့ လှမ်းခေါ်ရန် `_redirects` ဖိုင်ကို အသုံးပြုခြင်း ဖြစ်သည်။
+- `.env` တွင် `ALLOWED_ORIGINS` ၌ Cloudflare Pages ၏ Domain (ဥပမာ `https://your-app.pages.dev`) ကို ထည့်ပေးပါ။
+- **အရေးကြီးချက်:** OBS တွင်ပြသမည့် Live Overlay (SSE) သည် `_redirects` မှတစ်ဆင့် တိုက်ရိုက်အလုပ်မလုပ်နိုင်တတ်ပါ။ Production တွင် အသုံးမပြုမီ `https://your-app.pages.dev/api/admin/live/overlay` URL ကို ဝင်ကြည့်၍ SSE ချိတ်ဆက်မှု အလုပ်လုပ်ခြင်း ရှိ/မရှိ စစ်ဆေးပါ။ မရပါက Overlay Link အတွက် VPS ၏ Domain အရင်းကိုသာ တိုက်ရိုက်သုံးပါ။

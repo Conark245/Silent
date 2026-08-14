@@ -2,7 +2,10 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { db } from './db';
 
-const JWT_SECRET = process.env.SESSION_SECRET || 'obs_donation_session_secret_2026_xyz';
+const JWT_SECRET = process.env.SESSION_SECRET;
+if (!JWT_SECRET) {
+  throw new Error('[FATAL] SESSION_SECRET environment variable is not set. Refusing to start with an insecure default JWT secret.');
+}
 const COOKIE_NAME = 'obs_admin_token';
 
 export interface AuthenticatedRequest extends Request {
@@ -50,10 +53,7 @@ export function verifyAdminSession(req: Request) {
 
     const decoded = jwt.verify(token, JWT_SECRET) as { id: string; username: string };
     
-    if (decoded.id === 'hardcoded-conar' && decoded.username === 'Conar') {
-      return { id: 'hardcoded-conar', username: 'Conar', email: 'conar@example.com' };
-    }
-    
+
     const admin = db.getAdminById(decoded.id);
     if (!admin) return null;
 
