@@ -233,7 +233,7 @@ export async function notifyTelegramDonationHandled(
   const byText = `👤 *By:* ${escapeMarkdown(actorLabel)}`;
   const timeText = `⏰ *Time:* ${new Date().toLocaleTimeString()}`;
 
-  for (const msgInfo of donation.telegramMessages) {
+  const promises = donation.telegramMessages.map(async (msgInfo) => {
     try {
       const updatedText = `🔔 *DONATION ${status}*\n\n👤 *Donor:* ${escapeMarkdown(
         donation.donorName || 'Anonymous'
@@ -242,7 +242,7 @@ export async function notifyTelegramDonationHandled(
       }\`\n\n${actionText}\n${byText}\n${timeText}`;
 
       await editTelegramMessageOrCaption(
-        settings.botToken,
+        settings.botToken as string,
         msgInfo.chatId,
         msgInfo.messageId,
         updatedText,
@@ -254,7 +254,9 @@ export async function notifyTelegramDonationHandled(
         err
       );
     }
-  }
+  });
+
+  await Promise.allSettled(promises);
 }
 
 export async function sendTelegramTestMessage(botToken: string, adminIds: string[]) {
@@ -376,11 +378,14 @@ export async function handleTelegramWebhook(body: any) {
 
         // Notify and update all admin Telegram messages across all chats
         const actorLabel = `@${username} (ID: ${userId})`;
-        await notifyTelegramDonationHandled(updated, 'APPROVED', actorLabel);
-
+        
+        const tasks: Promise<any>[] = [];
         if (settings.botToken && cb.id) {
-          await answerCallbackQuery(settings.botToken, cb.id, '✅ Donation APPROVED & Synced to Website!');
+          tasks.push(answerCallbackQuery(settings.botToken, cb.id, '✅ Donation APPROVED & Synced to Website!'));
         }
+        tasks.push(notifyTelegramDonationHandled(updated, 'APPROVED', actorLabel));
+
+        await Promise.allSettled(tasks);
 
         return { success: true, action: 'APPROVED', donation: updated };
       }
@@ -402,11 +407,14 @@ export async function handleTelegramWebhook(body: any) {
 
         // Notify and update all admin Telegram messages across all chats
         const actorLabel = `@${username} (ID: ${userId})`;
-        await notifyTelegramDonationHandled(updated, 'DECLINED', actorLabel);
-
+        
+        const tasks: Promise<any>[] = [];
         if (settings.botToken && cb.id) {
-          await answerCallbackQuery(settings.botToken, cb.id, '❌ Donation DECLINED & Synced to Website');
+          tasks.push(answerCallbackQuery(settings.botToken, cb.id, '❌ Donation DECLINED & Synced to Website'));
         }
+        tasks.push(notifyTelegramDonationHandled(updated, 'DECLINED', actorLabel));
+
+        await Promise.allSettled(tasks);
 
         return { success: true, action: 'DECLINED', donation: updated };
       }
