@@ -78,9 +78,16 @@ class MongoDatabase {
   };
 
   private isConnected = false;
+  private connectionPromise: Promise<void> | null = null;
 
   constructor() {
-    this.connect();
+    this.connectionPromise = this.connect();
+  }
+
+  public async waitForConnection() {
+    if (this.connectionPromise) {
+      await this.connectionPromise;
+    }
   }
 
   public getConnectionStatus() {

@@ -379,13 +379,14 @@ export async function handleTelegramWebhook(body: any) {
         // Notify and update all admin Telegram messages across all chats
         const actorLabel = `@${username} (ID: ${userId})`;
         
-        const tasks: Promise<any>[] = [];
         if (settings.botToken && cb.id) {
-          tasks.push(answerCallbackQuery(settings.botToken, cb.id, '✅ Donation APPROVED & Synced to Website!'));
+          await answerCallbackQuery(settings.botToken, cb.id, '✅ Donation APPROVED & Synced to Website!');
         }
-        tasks.push(notifyTelegramDonationHandled(updated, 'APPROVED', actorLabel));
-
-        await Promise.allSettled(tasks);
+        
+        // Run notification in background
+        notifyTelegramDonationHandled(updated, 'APPROVED', actorLabel).catch(err => 
+          console.error('[Telegram] Background notification error:', err)
+        );
 
         return { success: true, action: 'APPROVED', donation: updated };
       }
@@ -408,13 +409,14 @@ export async function handleTelegramWebhook(body: any) {
         // Notify and update all admin Telegram messages across all chats
         const actorLabel = `@${username} (ID: ${userId})`;
         
-        const tasks: Promise<any>[] = [];
         if (settings.botToken && cb.id) {
-          tasks.push(answerCallbackQuery(settings.botToken, cb.id, '❌ Donation DECLINED & Synced to Website'));
+          await answerCallbackQuery(settings.botToken, cb.id, '❌ Donation DECLINED & Synced to Website');
         }
-        tasks.push(notifyTelegramDonationHandled(updated, 'DECLINED', actorLabel));
-
-        await Promise.allSettled(tasks);
+        
+        // Run notification in background
+        notifyTelegramDonationHandled(updated, 'DECLINED', actorLabel).catch(err => 
+          console.error('[Telegram] Background notification error:', err)
+        );
 
         return { success: true, action: 'DECLINED', donation: updated };
       }

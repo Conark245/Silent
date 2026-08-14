@@ -183,6 +183,7 @@ export function createExpressApp() {
       return res.status(401).json({ error: 'Invalid webhook secret' });
     }
     try {
+      await db.waitForConnection();
       const result = await handleTelegramWebhook(req.body);
       res.json(result);
     } catch (err: any) {
