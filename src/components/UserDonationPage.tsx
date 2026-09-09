@@ -472,7 +472,7 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
                         volume={selectedVideo.volume ?? 0.8}
                         autoPlay
                         loop
-                        muted={false}
+                        muted={!isPlayingSoundPreview}
                         playsInline
                         className="max-h-24 max-w-full object-contain"
                       />
@@ -738,7 +738,7 @@ export const UserDonationPage: React.FC<UserDonationPageProps> = ({
                     volume={selectedVideo.volume ?? 0.8}
                     autoPlay
                     loop
-                    muted={false}
+                    muted={!isPlayingSoundPreview}
                     playsInline
                     className="max-h-48 max-w-full object-contain"
                   />

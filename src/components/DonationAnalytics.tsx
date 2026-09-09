@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Donation, PaymentMethod, DonationItem } from '../types';
+import { YANGON_TIMEZONE } from '../utils/date';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -87,12 +88,12 @@ export const DonationAnalytics: React.FC<DonationAnalyticsProps> = ({
     const now = new Date();
 
     if (timeframe === 'daily') {
-      // Last 7 days
+      // Last 7 days in Yangon Time
       for (let i = 6; i >= 0; i--) {
         const d = new Date();
         d.setDate(now.getDate() - i);
-        const key = d.toISOString().split('T')[0];
-        const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        const key = d.toLocaleDateString('en-CA', { timeZone: YANGON_TIMEZONE });
+        const label = d.toLocaleDateString('en-US', { timeZone: YANGON_TIMEZONE, month: 'short', day: 'numeric' });
         map[key] = { dateLabel: label, revenue: 0, count: 0, timestamp: d.getTime() };
       }
     } else if (timeframe === 'weekly') {
@@ -101,7 +102,7 @@ export const DonationAnalytics: React.FC<DonationAnalyticsProps> = ({
         const d = new Date();
         d.setDate(now.getDate() - i * 7);
         const weekNum = Math.ceil(d.getDate() / 7);
-        const label = `W${weekNum} ${d.toLocaleDateString('en-US', { month: 'short' })}`;
+        const label = `W${weekNum} ${d.toLocaleDateString('en-US', { timeZone: YANGON_TIMEZONE, month: 'short' })}`;
         const key = `${d.getFullYear()}-W${Math.ceil((d.getDate() + d.getDay()) / 7)}`;
         map[key] = { dateLabel: label, revenue: 0, count: 0, timestamp: d.getTime() };
       }
@@ -109,8 +110,8 @@ export const DonationAnalytics: React.FC<DonationAnalyticsProps> = ({
       // Last 6 months
       for (let i = 5; i >= 0; i--) {
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-        const label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+        const key = d.toLocaleDateString('en-CA', { timeZone: YANGON_TIMEZONE }).slice(0, 7);
+        const label = d.toLocaleDateString('en-US', { timeZone: YANGON_TIMEZONE, month: 'short', year: '2-digit' });
         map[key] = { dateLabel: label, revenue: 0, count: 0, timestamp: d.getTime() };
       }
     }
@@ -124,15 +125,15 @@ export const DonationAnalytics: React.FC<DonationAnalyticsProps> = ({
       let dateLabel = '';
 
       if (timeframe === 'daily') {
-        key = date.toISOString().split('T')[0];
-        dateLabel = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        key = date.toLocaleDateString('en-CA', { timeZone: YANGON_TIMEZONE });
+        dateLabel = date.toLocaleDateString('en-US', { timeZone: YANGON_TIMEZONE, month: 'short', day: 'numeric' });
       } else if (timeframe === 'weekly') {
         const weekNum = Math.ceil(date.getDate() / 7);
         key = `${date.getFullYear()}-W${weekNum}`;
-        dateLabel = `W${weekNum} ${date.toLocaleDateString('en-US', { month: 'short' })}`;
+        dateLabel = `W${weekNum} ${date.toLocaleDateString('en-US', { timeZone: YANGON_TIMEZONE, month: 'short' })}`;
       } else {
-        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        dateLabel = date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+        key = date.toLocaleDateString('en-CA', { timeZone: YANGON_TIMEZONE }).slice(0, 7);
+        dateLabel = date.toLocaleDateString('en-US', { timeZone: YANGON_TIMEZONE, month: 'short', year: '2-digit' });
       }
 
       if (!map[key]) {
@@ -232,7 +233,7 @@ export const DonationAnalytics: React.FC<DonationAnalyticsProps> = ({
                   Donation Analytics & Revenue Charts
                 </h2>
                 <p className="text-slate-700 dark:text-slate-300 text-xs">
-                  Real-time visualization of stream donations, revenue trends, payment methods & top supporters
+                  Real-time visualization of stream donations, revenue trends, payment methods & top supporters (Yangon Time / MMT)
                 </p>
               </div>
             </div>

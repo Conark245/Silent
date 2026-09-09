@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Donation } from '../types';
 import { CheckCircle2, XCircle, Clock, Copy, RefreshCw, X } from 'lucide-react';
+import { formatYangonDateTime } from '../utils/date';
 
 interface StatusModalProps {
   donation: Donation;
@@ -129,6 +130,13 @@ export const StatusModal: React.FC<StatusModalProps> = ({ donation: initialDonat
             <div className="flex justify-between items-center text-sm">
               <span className="text-slate-500">Payment Method:</span>
               <span className="text-slate-800 font-medium">{donation.paymentMethodName}</span>
+            </div>
+          )}
+
+          {donation.createdAt && (
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-slate-500">Submitted at:</span>
+              <span className="text-slate-700 font-medium text-xs font-mono">{formatYangonDateTime(donation.createdAt)} (MMT)</span>
             </div>
           )}
 

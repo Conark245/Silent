@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { GreenScreenMedia } from './GreenScreenMedia';
+import { formatYangonDateTime, getYangonDateKey } from '../utils/date';
 import {
   Donation,
   PaymentMethod,
@@ -1399,10 +1400,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <button
                     onClick={() => {
                       const csvContent = [
-                        ['ID', 'Date', 'Donor Name', 'Amount', 'Currency', 'Item', 'Payment Method', 'Reference', 'Status', 'Processed By'].join(','),
+                        ['ID', 'Date (Yangon Time)', 'Donor Name', 'Amount', 'Currency', 'Item', 'Payment Method', 'Reference', 'Status', 'Processed By'].join(','),
                         ...donations.map(d => [
                           d.publicId,
-                          new Date(d.createdAt).toLocaleString().replace(/,/g, ''),
+                          `"${formatYangonDateTime(d.createdAt)}"`,
                           `"${(d.donorName || '').replace(/"/g, '""')}"`,
                           d.amount,
                           d.currency,
@@ -1418,7 +1419,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       const url = URL.createObjectURL(blob);
                       const link = document.createElement('a');
                       link.href = url;
-                      link.setAttribute('download', `donations_history_${new Date().toISOString().slice(0, 10)}.csv`);
+                      link.setAttribute('download', `donations_history_${getYangonDateKey()}.csv`);
                       document.body.appendChild(link);
                       link.click();
                       document.body.removeChild(link);
@@ -1437,7 +1438,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <table className="w-full text-left border-collapse">
                     <thead className="bg-slate-200 dark:bg-slate-800/50 text-xs text-slate-500 dark:text-slate-400 uppercase font-bold">
                       <tr>
-                        <th className="px-6 py-3">Date</th>
+                        <th className="px-6 py-3">Date (Yangon)</th>
                         <th className="px-6 py-3">Donor</th>
                         <th className="px-6 py-3">Amount</th>
                         <th className="px-6 py-3">Payment</th>
@@ -1458,8 +1459,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             key={d.id}
                             className="transition hover:bg-slate-200 dark:hover:bg-slate-800/30"
                           >
-                            <td className="px-6 py-4 text-xs text-slate-500 dark:text-slate-400">
-                              {new Date(d.createdAt).toLocaleString()}
+                            <td className="px-6 py-4 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                              {formatYangonDateTime(d.createdAt)}
                             </td>
                             <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100">
                               <div>{d.donorName}</div>
@@ -3086,7 +3087,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <table className="w-full text-left border-collapse">
                   <thead className="bg-slate-200 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 font-semibold">
                     <tr>
-                      <th className="p-3.5">Timestamp</th>
+                      <th className="p-3.5">Timestamp (Yangon)</th>
                       <th className="p-3.5">Actor</th>
                       <th className="p-3.5">Action Type</th>
                       <th className="p-3.5">Target ID</th>
@@ -3147,7 +3148,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         return (
                           <tr key={log.id} className="hover:bg-slate-200 dark:hover:bg-slate-800/40 transition">
                             <td className="p-3.5 text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                              {new Date(log.timestamp).toLocaleString()}
+                              {formatYangonDateTime(log.timestamp)}
                             </td>
                             <td className="p-3.5 text-indigo-300 font-semibold whitespace-nowrap">
                               {log.telegramUserId
@@ -3468,7 +3469,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       Order Preview ({previewOrder.publicId})
                     </h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      Submitted at: {new Date(previewOrder.createdAt).toLocaleString()}
+                      Submitted at: {formatYangonDateTime(previewOrder.createdAt)} (Yangon Time)
                     </p>
                   </div>
                 </div>

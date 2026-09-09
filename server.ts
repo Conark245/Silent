@@ -32,7 +32,7 @@ export function createExpressApp() {
   app.use(cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true); // same-origin, curl, server-to-server
-      if (origin.endsWith('.run.app')) return callback(null, true); // AI Studio preview domains
+      if (origin.endsWith('.run.app') || origin.endsWith('.railway.app') || origin.endsWith('.up.railway.app')) return callback(null, true); // AI Studio & Railway domains
       if (allowedOrigins.length === 0) return callback(null, true); // no allowlist configured — permissive default
       if (allowedOrigins.includes(origin)) return callback(null, true);
       callback(new Error('Not allowed by CORS'));
@@ -60,6 +60,7 @@ export function createExpressApp() {
     res.json({
       status: 'ok',
       time: new Date().toISOString(),
+      yangonTime: new Date().toLocaleString('en-US', { timeZone: 'Asia/Yangon' }),
       realtimeClients: realtimeServer.getClientCount(),
     });
   });

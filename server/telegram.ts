@@ -15,6 +15,16 @@ export async function sendTelegramNotification(donation: Donation) {
 
   const item = donation.donationItemId ? db.getDonationItemById(donation.donationItemId) : null;
   const pm = donation.paymentMethodId ? db.getPaymentMethodById(donation.paymentMethodId) : null;
+  const yangonTimeStr = new Date(donation.createdAt || Date.now()).toLocaleString('en-US', {
+    timeZone: 'Asia/Yangon',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  });
 
   const text = `🔔 *NEW DONATION RECEIVED*
 
@@ -24,6 +34,7 @@ export async function sendTelegramNotification(donation: Donation) {
 🔢 *Transaction ID:* \`${escapeMarkdown(donation.paymentReference || (donation as any).transactionRef || 'N/A')}\`
 🎁 *Reward:* ${escapeMarkdown(item ? item.name : donation.donationItemName || 'Standard Donation')}
 💬 *Message:* ${escapeMarkdown(donation.message ? donation.message.trim() : '(No message)')}
+⏰ *Time (Yangon):* ${escapeMarkdown(yangonTimeStr)}
 🆔 *Donation ID:* \`${donation.publicId}\``;
 
   const inlineKeyboard = {
@@ -113,7 +124,10 @@ export async function sendTelegramNotification(donation: Donation) {
         // Case C: Local disk file
         if (!sentSuccess && !proofUrl.startsWith('data:image/')) {
           const relPath = proofUrl.replace(/^\//, '');
-          const localFilePath = path.join(process.cwd(), relPath);
+          let localFilePath = path.join(process.cwd(), relPath);
+          if (!fs.existsSync(localFilePath)) {
+            localFilePath = path.join(process.cwd(), 'public', relPath);
+          }
           if (fs.existsSync(localFilePath)) {
             try {
               const fileBuffer = fs.readFileSync(localFilePath);
@@ -231,7 +245,13 @@ export async function notifyTelegramDonationHandled(
 
   const actionText = status === 'APPROVED' ? '✅ *STATUS: APPROVED*' : '❌ *STATUS: DECLINED*';
   const byText = `👤 *By:* ${escapeMarkdown(actorLabel)}`;
-  const timeText = `⏰ *Time:* ${new Date().toLocaleTimeString()}`;
+  const timeText = `⏰ *Time (Yangon):* ${new Date().toLocaleTimeString('en-US', {
+    timeZone: 'Asia/Yangon',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  })}`;
 
   const promises = donation.telegramMessages.map(async (msgInfo) => {
     try {
@@ -260,8 +280,19 @@ export async function notifyTelegramDonationHandled(
 }
 
 export async function sendTelegramTestMessage(botToken: string, adminIds: string[]) {
+  const yangonNow = new Date().toLocaleString('en-US', {
+    timeZone: 'Asia/Yangon',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  });
   const text = `🔔 *Test Message*
 This is a test message to verify your Telegram Bot connection for DonationLive.
+⏰ *Server Time (Yangon):* ${yangonNow}
 If you received this, your bot token and admin IDs are configured correctly!`;
   
   let sentCount = 0;

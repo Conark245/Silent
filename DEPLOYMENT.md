@@ -1,10 +1,47 @@
-# 🚀 Deployment Guide (Render, Vercel & VPS)
+# 🚀 Deployment Guide (Railway, Render, Vercel & VPS)
 
-ဤလမ်းညွှန်သည် ဤ Live Donation & OBS Alert System အပလီကေးရှင်းကို **Render**, **Vercel** နှင့် **VPS (Virtual Private Server / Docker / PM2)** တို့တွင် အလွယ်တကူ Deploy လုပ်နိုင်ရန် ရှင်းလင်းပြသထားပါသည်။
+ဤလမ်းညွှန်သည် ဤ Live Donation & OBS Alert System အပလီကေးရှင်းကို **Railway**, **Render**, **Vercel** နှင့် **VPS (Virtual Private Server / Docker / PM2)** တို့တွင် အလွယ်တကူ Deploy လုပ်နိုင်ရန် ရှင်းလင်းပြသထားပါသည်။
 
 ---
 
-## 1. 🌐 Render မှာ Deploy လုပ်နည်း (Render.com)
+## 1. 🚂 Railway မှာ Deploy လုပ်နည်း (Railway.app / Railway.com)
+
+Railway သည် Full-stack Node.js + OBS Live Alerts + Webhook + Database အတွက် အလွန်မြန်ဆန်ပြီး တည်ငြိမ်မှုအရှိဆုံး Platform ဖြစ်ပါသည်။ `railway.json` configuration ကို ထည့်သွင်းထားပြီးဖြစ်၍ GitHub Repository ကို ချိတ်ဆက်လိုက်ရုံဖြင့် အလိုအလျောက် အဆင်သင့် Deploy လုပ်ပေးပါမည်။
+
+### အဆင့်များ-
+
+1. **GitHub သို့ Push လုပ်ပါ:** သင့် Project code များကို GitHub Repository တွင် Push လုပ်ထားပါ။
+2. **Railway သို့ ဝင်ပါ:** [Railway Dashboard](https://railway.com/) သို့ဝင်ပြီး **"New Project"** ကို နှိပ်ပါ။
+3. **Deploy from GitHub repo:** သင့် GitHub repository ကို ရွေးချယ်ပြီး Deploy လုပ်ပါ။
+4. **(စိတ်ကြိုက်) Railway ထဲတွင် MongoDB ထည့်လိုပါက:**
+   - Railway Project ထဲတွင် **New -> Database -> Add MongoDB** ကို နှိပ်ပါ။
+   - သင့် Web Service ၏ Variables ထဲတွင် `MONGODB_URI` = `${{MongoDB.MONGO_URL}}` ဟု ထည့်ပေးနိုင်ပါသည်။ (သို့မဟုတ် MongoDB Atlas URI ကို ထည့်ပါ)
+5. **Environment Variables သတ်မှတ်ပါ:**
+   Web Service ကို နှိပ်ပြီး **Variables** Tab သို့သွားကာ အောက်ပါတို့ကို ထည့်ပေးပါ-
+   ```env
+   NODE_ENV=production
+   SESSION_SECRET=your_super_secret_session_key
+   ADMIN_USERNAME=admin
+   ADMIN_PASSWORD=your_secure_password
+   MONGODB_URI=your_mongodb_connection_string
+   TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+   TELEGRAM_ADMIN_IDS=your_telegram_chat_id
+   TELEGRAM_WEBHOOK_SECRET=your_webhook_secret
+   CLOUDINARY_CLOUD_NAME=
+   CLOUDINARY_API_KEY=
+   CLOUDINARY_API_SECRET=
+   ```
+   *(မှတ်ချက်: `PORT` ကို Railway မှ အလိုအလျောက် သတ်မှတ်ပေးသည့်အတွက် ကိုယ်တိုင် ထည့်စရာမလိုပါ)*
+6. **Public Domain ထုတ်ယူခြင်း (Networking):**
+   - Web Service ၏ **Settings** Tab သို့သွားပါ။
+   - **Networking** အောက်ရှိ **"Generate Domain"** ကို နှိပ်ပါ။
+   - သင့်အတွက် `https://your-app.up.railway.app` ဟူသော Public Domain ကို ရရှိပါမည်။
+7. **Telegram Webhook ချိတ်ဆက်ခြင်း:**
+   - App ၏ Admin Dashboard သို့ ဝင်ပြီး `https://your-app.up.railway.app` ကို Webhook URL အဖြစ် သတ်မှတ်ပြီး "Save & Register Webhook" ကို နှိပ်ပါ။
+
+---
+
+## 2. 🌐 Render မှာ Deploy လုပ်နည်း (Render.com)
 
 Render တွင် Full-stack Node.js Web Service အဖြစ် တင်ရန် အလွန်လွယ်ကူပါသည်။
 
@@ -22,7 +59,7 @@ Render တွင် Full-stack Node.js Web Service အဖြစ် တင်ရ�
 
 ---
 
-## 2. ▲ Vercel မှာ Deploy လုပ်နည်း (Vercel.com)
+## 3. ▲ Vercel မှာ Deploy လုပ်နည်း (Vercel.com)
 
 Vercel တွင် Frontend (SPA) နှင့် Backend API Routes (`/api/*`) နှစ်ခုစလုံးကို Serverless Functions အဖြစ် ချောမွေ့စွာ Deploy လုပ်နိုင်ရန် `vercel.json` နှင့် `api/index.ts` တို့ကို ပြင်ဆင်ထားပြီး ဖြစ်ပါသည်။
 
@@ -37,7 +74,7 @@ Vercel တွင် Frontend (SPA) နှင့် Backend API Routes (`/api/*`)
 
 ---
 
-## 3. 🖥️ VPS (Ubuntu/Linux) မှာ Deploy လုပ်နည်း
+## 4. 🖥️ VPS (Ubuntu/Linux) မှာ Deploy လုပ်နည်း
 
 VPS (DigitalOcean, AWS EC2, Linode, Vultr စသည်) တွင် Docker သို့မဟုတ် PM2 ဖြင့် Deploy လုပ်နိုင်ပါသည်။
 
@@ -72,6 +109,22 @@ VPS (DigitalOcean, AWS EC2, Linode, Vultr စသည်) တွင် Docker သ�
 
 ---
 
+## 5. ☁️ Cloudflare နှင့်အတူ Deploy လုပ်နည်း
+
+Cloudflare ကို အသုံးပြု၍ အပလီကေးရှင်းကို ပိုမိုမြန်ဆန်ပြီး လုံခြုံစေရန် အဓိကနည်းလမ်း (၂) မျိုး ရှိပါသည်။
+
+### ရွေးချယ်စရာ (က) - DNS/CDN Proxy အနေဖြင့် သုံးခြင်း (အကြံပြုချက်)
+သင့် VPS တွင် အပလီကေးရှင်းကို Run ထားပြီး Cloudflare ကို ၎င်းရှေ့မှ Proxy (Orange Cloud) အဖြစ် ခံထားခြင်း ဖြစ်သည်။
+- ဤနည်းလမ်းသည် ယခု Backend Code များအတွက် ထပ်မံပြင်ဆင်ရန် မလိုပါ။
+- DDoS Protection၊ Caching နှင့် SSL Certificate တို့ကို အလိုအလျောက် ရရှိမည်ဖြစ်သည်။
+
+### ရွေးချယ်စရာ (ခ) - Cloudflare Pages + VPS Backend
+Frontend ကို Cloudflare Pages တွင် Static Build အဖြစ် တင်ပြီး API များကို VPS ဆီသို့ လှမ်းခေါ်ရန် `_redirects` ဖိုင်ကို အသုံးပြုခြင်း ဖြစ်သည်။
+- `.env` တွင် `ALLOWED_ORIGINS` ၌ Cloudflare Pages ၏ Domain (ဥပမာ `https://your-app.pages.dev`) ကို ထည့်ပေးပါ။
+- **အရေးကြီးချက်:** OBS တွင်ပြသမည့် Live Overlay (SSE) သည် `_redirects` မှတစ်ဆင့် တိုက်ရိုက်အလုပ်မလုပ်နိုင်တတ်ပါ။ Production တွင် အသုံးမပြုမီ `https://your-app.pages.dev/api/admin/live/overlay` URL ကို ဝင်ကြည့်၍ SSE ချိတ်ဆက်မှု အလုပ်လုပ်ခြင်း ရှိ/မရှိ စစ်ဆေးပါ။ မရပါက Overlay Link အတွက် VPS ၏ Domain အရင်းကိုသာ တိုက်ရိုက်သုံးပါ။
+
+---
+
 ## 🔑 Environment Variables (.env)
 
 အောက်ပါ Environment Variables များကို Hosting တစ်ခုချင်းစီ၏ Dashboard (Environment Variables tab) သို့မဟုတ် `.env` ဖိုင်တွင် ထည့်သွင်းပေးရပါမည်။
@@ -92,18 +145,3 @@ MONGODB_URI=
 ALLOWED_ORIGINS=
 ```
 
----
-
-## 4. ☁️ Cloudflare နှင့်အတူ Deploy လုပ်နည်း
-
-Cloudflare ကို အသုံးပြု၍ အပလီကေးရှင်းကို ပိုမိုမြန်ဆန်ပြီး လုံခြုံစေရန် အဓိကနည်းလမ်း (၂) မျိုး ရှိပါသည်။
-
-### ရွေးချယ်စရာ (က) - DNS/CDN Proxy အနေဖြင့် သုံးခြင်း (အကြံပြုချက်)
-သင့် VPS တွင် အပလီကေးရှင်းကို Run ထားပြီး Cloudflare ကို ၎င်းရှေ့မှ Proxy (Orange Cloud) အဖြစ် ခံထားခြင်း ဖြစ်သည်။
-- ဤနည်းလမ်းသည် ယခု Backend Code များအတွက် ထပ်မံပြင်ဆင်ရန် မလိုပါ။
-- DDoS Protection၊ Caching နှင့် SSL Certificate တို့ကို အလိုအလျောက် ရရှိမည်ဖြစ်သည်။
-
-### ရွေးချယ်စရာ (ခ) - Cloudflare Pages + VPS Backend
-Frontend ကို Cloudflare Pages တွင် Static Build အဖြစ် တင်ပြီး API များကို VPS ဆီသို့ လှမ်းခေါ်ရန် `_redirects` ဖိုင်ကို အသုံးပြုခြင်း ဖြစ်သည်။
-- `.env` တွင် `ALLOWED_ORIGINS` ၌ Cloudflare Pages ၏ Domain (ဥပမာ `https://your-app.pages.dev`) ကို ထည့်ပေးပါ။
-- **အရေးကြီးချက်:** OBS တွင်ပြသမည့် Live Overlay (SSE) သည် `_redirects` မှတစ်ဆင့် တိုက်ရိုက်အလုပ်မလုပ်နိုင်တတ်ပါ။ Production တွင် အသုံးမပြုမီ `https://your-app.pages.dev/api/admin/live/overlay` URL ကို ဝင်ကြည့်၍ SSE ချိတ်ဆက်မှု အလုပ်လုပ်ခြင်း ရှိ/မရှိ စစ်ဆေးပါ။ မရပါက Overlay Link အတွက် VPS ၏ Domain အရင်းကိုသာ တိုက်ရိုက်သုံးပါ။
