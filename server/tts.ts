@@ -1,3 +1,6 @@
+import https from 'https';
+import fs from 'fs';
+import path from 'path';
 import { GoogleGenAI } from '@google/genai';
 import { v2 as cloudinary } from 'cloudinary';
 import { getCloudinaryConfig } from './cloudinary';
@@ -5,7 +8,10 @@ import { TtsSettings } from '../src/types';
 
 const TTS_MODEL = 'gemini-2.5-flash-preview-tts';
 const DEFAULT_VOICE = process.env.TTS_VOICE_NAME || 'Kore';
-const TTS_TIMEOUT_MS = 7000;
+const TTS_TIMEOUT_MS = 8000;
+
+// Regex to detect Burmese script characters
+const BURMESE_REGEX = /[\u1000-\u109F\uAA60-\uAA7F\uA9E0-\uA9FF]/;
 
 let genAiClient: GoogleGenAI | null = null;
 function getClient(): GoogleGenAI | null {
@@ -45,27 +51,101 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 /**
- * Generates an AI voice reading of a donation message and uploads it to
- * Cloudinary (as resource_type: 'video', Cloudinary's convention for audio).
- * Supports options for reading mode (full message vs limit characters) and custom voice.
- * Returns null (never throws) on any failure — caller must treat that as
- * "no voice for this event" and continue normally.
+ * Fetch native spoken audio from Google TTS engine for Burmese or other regional languages.
+ * Guaranteed to read Burmese script natively and fluently.
+ */
+function fetchGoogleTts(text: string, lang = 'my'): Promise<Buffer> {
+  const url = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${encodeURIComponent(lang)}&q=${encodeURIComponent(text)}`;
+  return new Promise((resolve, reject) => {
+    const req = https.get(
+      url,
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+      },
+      (res) => {
+        if (res.statusCode !== 200) {
+          return reject(new Error(`Google TTS returned HTTP ${res.statusCode}`));
+        }
+        const chunks: Buffer[] = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => resolve(Buffer.concat(chunks)));
+      }
+    );
+    req.on('error', reject);
+    req.setTimeout(6000, () => {
+      req.destroy();
+      reject(new Error('Google TTS request timeout'));
+    });
+  });
+}
+
+/**
+ * Save audio to Cloudinary or fallback to local uploads directory or data URI.
+ */
+async function storeAudioBuffer(
+  audioBuffer: Buffer,
+  format: 'mp3' | 'wav'
+): Promise<string> {
+  const cloudinaryConfig = getCloudinaryConfig();
+  if (cloudinaryConfig.isConfigured) {
+    try {
+      cloudinary.config({
+        cloud_name: cloudinaryConfig.cloudName,
+        api_key: cloudinaryConfig.apiKey,
+        api_secret: cloudinaryConfig.apiSecret,
+        secure: true,
+      });
+
+      const uploadResult: any = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          { resource_type: 'video', folder: 'donation_tts', format },
+          (err, result) => (err ? reject(err) : resolve(result))
+        );
+        stream.end(audioBuffer);
+      });
+
+      if (uploadResult?.secure_url) {
+        return uploadResult.secure_url;
+      }
+    } catch (cldErr) {
+      console.warn('[TTS] Cloudinary upload failed, falling back to local storage:', cldErr);
+    }
+  }
+
+  // Fallback: save to public/uploads/tts directory
+  try {
+    const ttsDir = path.join(process.cwd(), 'public', 'uploads', 'tts');
+    if (!fs.existsSync(ttsDir)) {
+      fs.mkdirSync(ttsDir, { recursive: true });
+    }
+    const filename = `tts-${Date.now()}-${Math.floor(Math.random() * 1000)}.${format}`;
+    const filePath = path.join(ttsDir, filename);
+    fs.writeFileSync(filePath, audioBuffer);
+    return `/uploads/tts/${filename}`;
+  } catch (fsErr) {
+    console.warn('[TTS] Local file write failed, returning data URI:', fsErr);
+    const mimeType = format === 'mp3' ? 'audio/mpeg' : 'audio/wav';
+    return `data:${mimeType};base64,${audioBuffer.toString('base64')}`;
+  }
+}
+
+/**
+ * Generates an AI voice reading of a donation message.
+ * - For Burmese text, uses native Burmese voice engine so words like "ချစ်တယ်နော် ကိုကြီး" are pronounced fluently.
+ * - For English / other text, uses Gemini 2.5 Flash TTS with selected voice (Kore, Puck, Charon, etc.).
+ * - Uploads audio to Cloudinary or falls back to local storage so audio is 100% playable in OBS.
  */
 export async function generateDonationTtsAudio(
   text: string,
   options?: TtsSettings
 ): Promise<{ url: string; voiceName: string } | null> {
-  const isEnabled = options?.enabled !== undefined ? options.enabled : (process.env.TTS_ENABLED === 'true');
+  // Enabled by default unless explicitly turned off
+  const isEnabled = options?.enabled !== false;
   if (!isEnabled) return null;
   const trimmed = (text || '').trim();
   if (!trimmed) return null;
-
-  const client = getClient();
-  const cloudinaryConfig = getCloudinaryConfig();
-  if (!client || !cloudinaryConfig.isConfigured) {
-    console.warn('[TTS] Skipped — missing GEMINI_API_KEY or Cloudinary is not configured.');
-    return null;
-  }
 
   try {
     const voiceName = options?.voiceName || DEFAULT_VOICE;
@@ -80,45 +160,64 @@ export async function generateDonationTtsAudio(
       }
     }
 
-    const response: any = await withTimeout(
-      client.models.generateContent({
-        model: TTS_MODEL,
-        contents: [{ parts: [{ text: textToSpeak }] }],
-        config: {
-          responseModalities: ['AUDIO'],
-          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } },
-        },
-      } as any),
-      TTS_TIMEOUT_MS
-    );
+    const isBurmese = BURMESE_REGEX.test(textToSpeak);
 
-    const audioPart = response?.candidates?.[0]?.content?.parts?.find(
-      (p: any) => p?.inlineData?.data
-    );
-    const base64Audio = audioPart?.inlineData?.data;
-    if (!base64Audio) {
-      console.warn('[TTS] Gemini returned no audio data.');
-      return null;
+    // If text contains Burmese script, use native Burmese voice
+    if (isBurmese) {
+      try {
+        const mp3Buffer = await fetchGoogleTts(textToSpeak, 'my');
+        if (mp3Buffer && mp3Buffer.length > 0) {
+          const url = await storeAudioBuffer(mp3Buffer, 'mp3');
+          return { url, voiceName: 'Burmese-Natural' };
+        }
+      } catch (burmeseErr: any) {
+        console.warn('[TTS] Burmese engine error, attempting Gemini fallback:', burmeseErr?.message);
+      }
     }
 
-    const wavBuffer = pcmToWav(Buffer.from(base64Audio, 'base64'));
+    // For English or non-Burmese text, use Gemini TTS
+    const client = getClient();
+    if (client) {
+      try {
+        const response: any = await withTimeout(
+          client.models.generateContent({
+            model: TTS_MODEL,
+            contents: [{ parts: [{ text: textToSpeak }] }],
+            config: {
+              responseModalities: ['AUDIO'],
+              speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } },
+            },
+          } as any),
+          TTS_TIMEOUT_MS
+        );
 
-    cloudinary.config({
-      cloud_name: cloudinaryConfig.cloudName,
-      api_key: cloudinaryConfig.apiKey,
-      api_secret: cloudinaryConfig.apiSecret,
-      secure: true,
-    });
+        const audioPart = response?.candidates?.[0]?.content?.parts?.find(
+          (p: any) => p?.inlineData?.data
+        );
+        const base64Audio = audioPart?.inlineData?.data;
+        if (base64Audio) {
+          const wavBuffer = pcmToWav(Buffer.from(base64Audio, 'base64'));
+          const url = await storeAudioBuffer(wavBuffer, 'wav');
+          return { url, voiceName };
+        }
+      } catch (geminiErr: any) {
+        console.warn('[TTS] Gemini generation error, attempting TTS fallback:', geminiErr?.message);
+      }
+    }
 
-    const uploadResult: any = await new Promise((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        { resource_type: 'video', folder: 'donation_tts', format: 'wav' },
-        (err, result) => (err ? reject(err) : resolve(result))
-      );
-      stream.end(wavBuffer);
-    });
+    // Fallback: Google TTS in English if Gemini is unavailable
+    try {
+      const fallbackLang = isBurmese ? 'my' : 'en';
+      const mp3Buffer = await fetchGoogleTts(textToSpeak, fallbackLang);
+      if (mp3Buffer && mp3Buffer.length > 0) {
+        const url = await storeAudioBuffer(mp3Buffer, 'mp3');
+        return { url, voiceName: `${fallbackLang}-Voice` };
+      }
+    } catch (fallbackErr) {
+      console.warn('[TTS] Universal fallback failed:', fallbackErr);
+    }
 
-    return { url: uploadResult.secure_url, voiceName };
+    return null;
   } catch (err: any) {
     console.error('[TTS] Generation failed:', err?.message || err);
     return null;

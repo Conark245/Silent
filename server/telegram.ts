@@ -26,22 +26,49 @@ export async function sendTelegramNotification(donation: Donation) {
     hour12: true,
   });
 
+  const donorName = donation.donorName ? donation.donorName.trim() : 'Anonymous';
+  const amountStr = `${donation.amount.toLocaleString()} ${donation.currency}`;
+  const pmName = pm ? pm.name : (donation.paymentMethodName || 'N/A');
+  const refCode = donation.paymentReference || (donation as any).transactionRef || 'N/A';
+  const rewardName = item ? item.name : (donation.donationItemName || 'Standard Donation');
+  const userMessage = donation.message ? donation.message.trim() : '';
+
+  // Prominently highlight the donor's message so admins immediately see it
+  const messageBlock = userMessage
+    ? `\n\n💌 *Donor's Message:*\n👉 "${escapeMarkdown(userMessage)}"`
+    : `\n\n💬 *Message:* _(No message)_`;
+
   const text = `🔔 *NEW DONATION RECEIVED*
 
-👤 *Donor:* ${escapeMarkdown(donation.donorName ? donation.donorName.trim() : 'Anonymous')}
-💰 *Amount:* *${donation.amount.toLocaleString()} ${donation.currency}*
-💳 *Payment:* ${escapeMarkdown(pm ? pm.name : donation.paymentMethodName || 'N/A')}
-🔢 *Transaction ID:* \`${escapeMarkdown(donation.paymentReference || (donation as any).transactionRef || 'N/A')}\`
-🎁 *Reward:* ${escapeMarkdown(item ? item.name : donation.donationItemName || 'Standard Donation')}
-💬 *Message:* ${escapeMarkdown(donation.message ? donation.message.trim() : '(No message)')}
+👤 *Donor:* ${escapeMarkdown(donorName)}
+💰 *Amount:* *${amountStr}*
+💳 *Payment:* ${escapeMarkdown(pmName)}
+🔢 *Transaction ID:* \`${escapeMarkdown(refCode)}\`
+🎁 *Reward:* ${escapeMarkdown(rewardName)}${messageBlock}
+
 ⏰ *Time (Yangon):* ${escapeMarkdown(yangonTimeStr)}
 🆔 *Donation ID:* \`${donation.publicId}\``;
+
+  const plainMessageBlock = userMessage
+    ? `\n\n💌 Donor's Message:\n👉 "${userMessage}"`
+    : `\n\n💬 Message: (No message)`;
+
+  const plainText = `🔔 NEW DONATION RECEIVED
+
+👤 Donor: ${donorName}
+💰 Amount: ${amountStr}
+💳 Payment: ${pmName}
+🔢 Transaction ID: ${refCode}
+🎁 Reward: ${rewardName}${plainMessageBlock}
+
+⏰ Time (Yangon): ${yangonTimeStr}
+🆔 Donation ID: ${donation.publicId}`;
 
   const inlineKeyboard = {
     inline_keyboard: [
       [
         { text: '✅ APPROVE', callback_data: `approve:${donation.id}` },
-        { text: '❌ DECLINE', callback_data: `decline:${donation.id}` },
+        { text: '❌ REJECT', callback_data: `decline:${donation.id}` },
       ],
     ],
   };
@@ -243,8 +270,9 @@ export async function notifyTelegramDonationHandled(
     return;
   }
 
-  const actionText = status === 'APPROVED' ? '✅ *STATUS: APPROVED*' : '❌ *STATUS: DECLINED*';
-  const byText = `👤 *By:* ${escapeMarkdown(actorLabel)}`;
+  const isApproved = status === 'APPROVED';
+  const actionText = isApproved ? '✅ *STATUS: APPROVED*' : '❌ *STATUS: REJECTED*';
+  const byText = `👤 *Handled By:* ${escapeMarkdown(actorLabel)}`;
   const timeText = `⏰ *Time (Yangon):* ${new Date().toLocaleTimeString('en-US', {
     timeZone: 'Asia/Yangon',
     hour: '2-digit',
@@ -253,13 +281,18 @@ export async function notifyTelegramDonationHandled(
     hour12: true,
   })}`;
 
+  const userMessage = donation.message ? donation.message.trim() : '';
+  const messageBlock = userMessage
+    ? `\n💌 *Donor's Message:* "${escapeMarkdown(userMessage)}"`
+    : '';
+
   const promises = donation.telegramMessages.map(async (msgInfo) => {
     try {
-      const updatedText = `🔔 *DONATION ${status}*\n\n👤 *Donor:* ${escapeMarkdown(
+      const updatedText = `🔔 *DONATION ${isApproved ? 'APPROVED' : 'REJECTED'}*\n\n👤 *Donor:* ${escapeMarkdown(
         donation.donorName || 'Anonymous'
       )}\n💰 *Amount:* *${donation.amount.toLocaleString()} ${donation.currency}*\n🆔 *ID:* \`${
         donation.publicId
-      }\`\n\n${actionText}\n${byText}\n${timeText}`;
+      }\`${messageBlock}\n\n${actionText}\n${byText}\n${timeText}`;
 
       await editTelegramMessageOrCaption(
         settings.botToken as string,
@@ -421,7 +454,7 @@ export async function handleTelegramWebhook(body: any) {
 
         return { success: true, action: 'APPROVED', donation: updated };
       }
-    } else if (action === 'decline') {
+    } else if (action === 'decline' || action === 'reject') {
       const updated = db.updateDonationStatus(donation.id, 'DECLINED', {
         telegramUserId: `${username} (${userId})`,
       });
@@ -441,7 +474,7 @@ export async function handleTelegramWebhook(body: any) {
         const actorLabel = `@${username} (ID: ${userId})`;
         
         if (settings.botToken && cb.id) {
-          await answerCallbackQuery(settings.botToken, cb.id, '❌ Donation DECLINED & Synced to Website');
+          await answerCallbackQuery(settings.botToken, cb.id, '❌ Donation REJECTED & Synced to Website');
         }
         
         // Run notification in background
@@ -491,14 +524,27 @@ async function editTelegramMessageOrCaption(
       bodyObj.text = text;
     }
 
-    const res = await fetch(`https://api.telegram.org/bot${botToken}/${endpoint}`, {
+    let res = await fetch(`https://api.telegram.org/bot${botToken}/${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(bodyObj),
       signal: AbortSignal.timeout(15000),
     });
 
-    const data = await res.json();
+    let data = await res.json();
+    if (!data.ok) {
+      // Retry without parse_mode as plain text in case markdown parsing caused issue
+      delete bodyObj.parse_mode;
+      bodyObj[isPhoto ? 'caption' : 'text'] = text.replace(/[*_`]/g, '');
+      res = await fetch(`https://api.telegram.org/bot${botToken}/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bodyObj),
+        signal: AbortSignal.timeout(15000),
+      });
+      data = await res.json();
+    }
+
     if (!data.ok && !isPhoto) {
       // Fallback try editMessageCaption if editMessageText failed
       await fetch(`https://api.telegram.org/bot${botToken}/editMessageCaption`, {
@@ -507,8 +553,7 @@ async function editTelegramMessageOrCaption(
         body: JSON.stringify({
           chat_id: chatId,
           message_id: messageId,
-          caption: text,
-          parse_mode: 'Markdown',
+          caption: text.replace(/[*_`]/g, ''),
           reply_markup: { inline_keyboard: [] },
         }),
         signal: AbortSignal.timeout(15000),

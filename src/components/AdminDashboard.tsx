@@ -1337,8 +1337,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             }`}
                           >
                             <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100">
-                              <div>{d.donorName}</div>
+                              <div>{d.donorName || 'Anonymous'}</div>
                               <div className="text-[10px] font-mono text-slate-400 dark:text-slate-500">{d.publicId}</div>
+                              {d.message && (
+                                <div className="mt-1 text-xs text-amber-600 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800/50 italic max-w-xs break-words">
+                                  💬 "{d.message}"
+                                </div>
+                              )}
                             </td>
                             <td className="px-6 py-4 font-mono font-bold text-emerald-400">
                               {d.amount.toLocaleString()} {d.currency}
@@ -1530,8 +1535,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               {formatYangonDateTime(d.createdAt)}
                             </td>
                             <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100">
-                              <div>{d.donorName}</div>
+                              <div>{d.donorName || 'Anonymous'}</div>
                               <div className="text-[10px] font-mono text-slate-400 dark:text-slate-500">{d.publicId}</div>
+                              {d.message && (
+                                <div className="mt-1 text-xs text-amber-600 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800/50 italic max-w-xs break-words">
+                                  💬 "{d.message}"
+                                </div>
+                              )}
                             </td>
                             <td className="px-6 py-4 font-mono font-bold text-emerald-400">
                               {d.amount.toLocaleString()} {d.currency}

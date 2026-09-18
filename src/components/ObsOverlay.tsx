@@ -177,24 +177,40 @@ export const ObsOverlay: React.FC = () => {
         const maxDurationLimit = payload.tts.maxDuration;
         const effectiveTtsDuration = (maxDurationLimit && maxDurationLimit > 0)
           ? Math.min(ttsDuration, maxDurationLimit)
-          : ttsDuration;
+          : (ttsDuration || 5);
 
-        duration = Math.max(duration, effectiveTtsDuration + 1.5);
+        const ttsDelay = payload.sound?.url ? 0.4 : 0;
+        duration = Math.max(duration, effectiveTtsDuration + ttsDelay + 2.0);
         if (!ttsAudioRef.current) ttsAudioRef.current = new Audio();
-        ttsAudioRef.current.src = payload.tts.url;
-        ttsAudioRef.current.volume = 1.0;
-        ttsAudioRef.current.play().catch((err) =>
-          console.warn('[OBS Overlay] TTS playback blocked:', err)
-        );
+        const ttsAudio = ttsAudioRef.current;
+        ttsAudio.src = payload.tts.url;
+        ttsAudio.volume = 1.0;
+
+        // When the voice finishes reading the message, finish the alert smoothly
+        ttsAudio.onended = () => {
+          setTimeout(() => {
+            if (!finishEventHandledRef.current) {
+              finishEvent();
+            }
+          }, 1200);
+        };
+
+        setTimeout(() => {
+          if (ttsAudio && !finishEventHandledRef.current) {
+            ttsAudio.play().catch((err) =>
+              console.warn('[OBS Overlay] TTS playback blocked:', err)
+            );
+          }
+        }, ttsDelay * 1000);
 
         // If max duration limit is exceeded by audio, cutoff smoothly when limit expires
         if (maxDurationLimit && maxDurationLimit > 0 && ttsDuration > maxDurationLimit) {
           setTimeout(() => {
-            if (ttsAudioRef.current) {
-              ttsAudioRef.current.pause();
-              ttsAudioRef.current.currentTime = 0;
+            if (ttsAudio) {
+              ttsAudio.pause();
+              ttsAudio.currentTime = 0;
             }
-          }, maxDurationLimit * 1000);
+          }, (ttsDelay + maxDurationLimit) * 1000);
         }
       } catch (err) {
         console.error('[OBS Overlay] TTS play error:', err);
