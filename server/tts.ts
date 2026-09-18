@@ -50,11 +50,32 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
-/**
- * Fetch native spoken audio from Google TTS engine for Burmese or other regional languages.
- * Guaranteed to read Burmese script natively and fluently.
- */
-function fetchGoogleTts(text: string, lang = 'my'): Promise<Buffer> {
+function splitTextIntoTtsChunks(text: string, maxChunkLen = 140): string[] {
+  if (text.length <= maxChunkLen) return [text];
+  const chunks: string[] = [];
+  let remaining = text.trim();
+  while (remaining.length > 0) {
+    if (remaining.length <= maxChunkLen) {
+      chunks.push(remaining);
+      break;
+    }
+    let sliceIdx = -1;
+    // Prefer splitting at sentence or clause boundaries
+    for (const punct of ['။', '၊', ' ', '\n', '.', '!', '?']) {
+      const idx = remaining.lastIndexOf(punct, maxChunkLen);
+      if (idx > sliceIdx && idx > 20) {
+        sliceIdx = idx + punct.length;
+      }
+    }
+    if (sliceIdx === -1) sliceIdx = maxChunkLen;
+    const chunk = remaining.slice(0, sliceIdx).trim();
+    if (chunk) chunks.push(chunk);
+    remaining = remaining.slice(sliceIdx).trim();
+  }
+  return chunks.filter((c) => c.length > 0);
+}
+
+function fetchSingleGoogleTts(text: string, lang = 'my'): Promise<Buffer> {
   const url = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${encodeURIComponent(lang)}&q=${encodeURIComponent(text)}`;
   return new Promise((resolve, reject) => {
     const req = https.get(
@@ -74,11 +95,28 @@ function fetchGoogleTts(text: string, lang = 'my'): Promise<Buffer> {
       }
     );
     req.on('error', reject);
-    req.setTimeout(6000, () => {
+    req.setTimeout(8000, () => {
       req.destroy();
       reject(new Error('Google TTS request timeout'));
     });
   });
+}
+
+/**
+ * Fetch native spoken audio from Google TTS engine for Burmese or other regional languages.
+ * Splits long text into natural chunks and concatenates so full messages are read completely.
+ */
+async function fetchGoogleTts(text: string, lang = 'my'): Promise<Buffer> {
+  const chunks = splitTextIntoTtsChunks(text, 140);
+  if (chunks.length <= 1) {
+    return fetchSingleGoogleTts(text, lang);
+  }
+  const buffers: Buffer[] = [];
+  for (const chunk of chunks) {
+    const buf = await fetchSingleGoogleTts(chunk, lang);
+    buffers.push(buf);
+  }
+  return Buffer.concat(buffers);
 }
 
 /**

@@ -20,7 +20,11 @@ export const ObsOverlay: React.FC = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
   const timeoutIdRef = useRef<NodeJS.Timeout | null>(null);
+  const safetyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const finishEventHandledRef = useRef<boolean>(false);
+  const isTtsReadingRef = useRef<boolean>(false);
+  const rewardDurationElapsedRef = useRef<boolean>(false);
+  const [isTtsActive, setIsTtsActive] = useState<boolean>(false);
 
   // Enable audio interaction handler for browser policies
   const enableAudio = () => {
@@ -149,11 +153,16 @@ export const ObsOverlay: React.FC = () => {
 
     processedEventIdsRef.current.add(event.eventId);
     finishEventHandledRef.current = false;
+    isTtsReadingRef.current = false;
+    rewardDurationElapsedRef.current = false;
+    setIsTtsActive(false);
     setCurrentEvent(event);
     setIsPlaying(true);
 
     const payload = event.payload;
-    let duration = payload.item?.displayDuration || 8; // default 8 seconds
+    const baseRewardDuration = payload.item?.displayDuration || 8; // default 8 seconds
+    const hasTts = Boolean(payload.tts?.url && !muted);
+    const readFullMessage = payload.tts?.readFullMessage !== false;
 
     // Play Sound if configured
     if (payload.sound && payload.sound.url && !muted) {
@@ -171,49 +180,65 @@ export const ObsOverlay: React.FC = () => {
       }
     }
 
-    if (payload.tts?.url && !muted) {
+    if (hasTts && payload.tts?.url) {
       try {
-        const ttsDuration = await getAudioDuration(payload.tts.url);
-        const maxDurationLimit = payload.tts.maxDuration;
-        const effectiveTtsDuration = (maxDurationLimit && maxDurationLimit > 0)
-          ? Math.min(ttsDuration, maxDurationLimit)
-          : (ttsDuration || 5);
+        isTtsReadingRef.current = true;
+        setIsTtsActive(true);
 
-        const ttsDelay = payload.sound?.url ? 0.4 : 0;
-        duration = Math.max(duration, effectiveTtsDuration + ttsDelay + 2.0);
         if (!ttsAudioRef.current) ttsAudioRef.current = new Audio();
         const ttsAudio = ttsAudioRef.current;
         ttsAudio.src = payload.tts.url;
         ttsAudio.volume = 1.0;
 
-        // When the voice finishes reading the message, finish the alert smoothly
-        ttsAudio.onended = () => {
-          setTimeout(() => {
-            if (!finishEventHandledRef.current) {
-              finishEvent();
-            }
-          }, 1200);
+        const maxDurationLimit = payload.tts.maxDuration;
+        const shouldEnforceLimit = !readFullMessage && Boolean(maxDurationLimit && maxDurationLimit > 0);
+        const ttsDelay = payload.sound?.url ? 0.4 : 0;
+
+        // When the voice finishes reading the message, check if reward duration also passed
+        const onTtsFinished = () => {
+          if (!isTtsReadingRef.current) return;
+          isTtsReadingRef.current = false;
+          setIsTtsActive(false);
+
+          // If the reward duration has already elapsed, smoothly complete the alert
+          if (rewardDurationElapsedRef.current) {
+            setTimeout(() => {
+              if (!finishEventHandledRef.current) {
+                finishEvent();
+              }
+            }, 1200);
+          }
+        };
+
+        ttsAudio.onended = onTtsFinished;
+        ttsAudio.onerror = (err) => {
+          console.warn('[OBS Overlay] TTS error:', err);
+          onTtsFinished();
         };
 
         setTimeout(() => {
           if (ttsAudio && !finishEventHandledRef.current) {
-            ttsAudio.play().catch((err) =>
-              console.warn('[OBS Overlay] TTS playback blocked:', err)
-            );
+            ttsAudio.play().catch((err) => {
+              console.warn('[OBS Overlay] TTS playback blocked:', err);
+              onTtsFinished();
+            });
           }
         }, ttsDelay * 1000);
 
-        // If max duration limit is exceeded by audio, cutoff smoothly when limit expires
-        if (maxDurationLimit && maxDurationLimit > 0 && ttsDuration > maxDurationLimit) {
+        // If readFullMessage is false and maxDurationLimit is specified, cutoff when limit expires
+        if (shouldEnforceLimit && maxDurationLimit) {
           setTimeout(() => {
-            if (ttsAudio) {
+            if (isTtsReadingRef.current && ttsAudio) {
               ttsAudio.pause();
               ttsAudio.currentTime = 0;
+              onTtsFinished();
             }
           }, (ttsDelay + maxDurationLimit) * 1000);
         }
       } catch (err) {
         console.error('[OBS Overlay] TTS play error:', err);
+        isTtsReadingRef.current = false;
+        setIsTtsActive(false);
       }
     }
 
@@ -226,19 +251,50 @@ export const ObsOverlay: React.FC = () => {
       console.error('[OBS Overlay] Error marking event processed:', err);
     }
 
-    // Wait for configured duration, then finish event
+    // Reward display timer: if reading the full message is active, wait until TTS finishes
     timeoutIdRef.current = setTimeout(() => {
+      rewardDurationElapsedRef.current = true;
+      if (isTtsReadingRef.current) {
+        console.log('[OBS Overlay] Reward time completed, holding alert until donor message finishes reading.');
+        return;
+      }
       finishEvent();
-    }, duration * 1000);
+    }, baseRewardDuration * 1000);
+
+    // Global Safety Timeout (90s) in case audio stalls
+    safetyTimeoutRef.current = setTimeout(() => {
+      if (!finishEventHandledRef.current) {
+        console.warn('[OBS Overlay] Safety limit reached, finishing event.');
+        finishEvent();
+      }
+    }, 90000);
+  };
+
+  const handleVideoEnded = () => {
+    // If TTS is currently reading out the message, do not close the alert!
+    if (isTtsReadingRef.current) {
+      return;
+    }
+    // If reward duration has also elapsed, finish event
+    if (rewardDurationElapsedRef.current) {
+      finishEvent();
+    }
   };
 
   const finishEvent = () => {
     if (finishEventHandledRef.current) return;
     finishEventHandledRef.current = true;
+    isTtsReadingRef.current = false;
+    rewardDurationElapsedRef.current = false;
+    setIsTtsActive(false);
     
     if (timeoutIdRef.current) {
       clearTimeout(timeoutIdRef.current);
       timeoutIdRef.current = null;
+    }
+    if (safetyTimeoutRef.current) {
+      clearTimeout(safetyTimeoutRef.current);
+      safetyTimeoutRef.current = null;
     }
 
     if (audioRef.current) {
@@ -304,7 +360,8 @@ export const ObsOverlay: React.FC = () => {
                     muted={muted}
                     autoPlay={true}
                     playsInline={true}
-                    onEnded={finishEvent}
+                    loop={Boolean(payload?.tts?.url && isTtsActive)}
+                    onEnded={handleVideoEnded}
                     className="max-h-56 max-w-full object-contain"
                   />
                 ) : sticker?.url ? (
