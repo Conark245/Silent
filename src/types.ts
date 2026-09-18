@@ -75,6 +75,11 @@ export interface DonationEvent {
     sticker?: MediaAsset;
     sound?: MediaAsset;
     video?: MediaAsset;
+    tts?: {
+      url: string;
+      maxDuration?: number;
+      readFullMessage?: boolean;
+    };
   };
   processed: boolean;
   createdAt: string;
@@ -105,6 +110,14 @@ export interface CloudinarySettings {
   enabled?: boolean;
 }
 
+export interface TtsSettings {
+  enabled?: boolean;
+  voiceName?: string;
+  readFullMessage?: boolean;
+  maxDurationSeconds?: number;
+  maxCharacters?: number;
+}
+
 export interface SystemSettings {
   defaultSoundId?: string;
   themeConfig?: {
@@ -115,6 +128,7 @@ export interface SystemSettings {
     textColor?: string;
     animationSpeed?: number; // e.g. 1 (normal), 0.5 (slow), 2 (fast)
   };
+  ttsSettings?: TtsSettings;
 }
 
 export interface AdminUser {

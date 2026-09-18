@@ -18,6 +18,7 @@ export const ObsOverlay: React.FC = () => {
   // Track processed event IDs to prevent duplicate playback
   const processedEventIdsRef = useRef<Set<string>>(new Set());
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
   const timeoutIdRef = useRef<NodeJS.Timeout | null>(null);
   const finishEventHandledRef = useRef<boolean>(false);
 
@@ -130,6 +131,16 @@ export const ObsOverlay: React.FC = () => {
     }
   }, [queue, isPlaying, canPlayNext]);
 
+  const getAudioDuration = (url: string): Promise<number> => {
+    return new Promise((resolve) => {
+      const probe = new Audio();
+      probe.src = url;
+      probe.addEventListener('loadedmetadata', () => resolve(probe.duration || 0));
+      probe.addEventListener('error', () => resolve(0));
+      setTimeout(() => resolve(0), 2500);
+    });
+  };
+
   const playEvent = async (event: DonationEvent) => {
     if (processedEventIdsRef.current.has(event.eventId)) {
       setCanPlayNext(true); // Allow next
@@ -142,7 +153,7 @@ export const ObsOverlay: React.FC = () => {
     setIsPlaying(true);
 
     const payload = event.payload;
-    const duration = payload.item?.displayDuration || 8; // default 8 seconds
+    let duration = payload.item?.displayDuration || 8; // default 8 seconds
 
     // Play Sound if configured
     if (payload.sound && payload.sound.url && !muted) {
@@ -157,6 +168,36 @@ export const ObsOverlay: React.FC = () => {
         });
       } catch (err) {
         console.error('[OBS Overlay] Audio play error:', err);
+      }
+    }
+
+    if (payload.tts?.url && !muted) {
+      try {
+        const ttsDuration = await getAudioDuration(payload.tts.url);
+        const maxDurationLimit = payload.tts.maxDuration;
+        const effectiveTtsDuration = (maxDurationLimit && maxDurationLimit > 0)
+          ? Math.min(ttsDuration, maxDurationLimit)
+          : ttsDuration;
+
+        duration = Math.max(duration, effectiveTtsDuration + 1.5);
+        if (!ttsAudioRef.current) ttsAudioRef.current = new Audio();
+        ttsAudioRef.current.src = payload.tts.url;
+        ttsAudioRef.current.volume = 1.0;
+        ttsAudioRef.current.play().catch((err) =>
+          console.warn('[OBS Overlay] TTS playback blocked:', err)
+        );
+
+        // If max duration limit is exceeded by audio, cutoff smoothly when limit expires
+        if (maxDurationLimit && maxDurationLimit > 0 && ttsDuration > maxDurationLimit) {
+          setTimeout(() => {
+            if (ttsAudioRef.current) {
+              ttsAudioRef.current.pause();
+              ttsAudioRef.current.currentTime = 0;
+            }
+          }, maxDurationLimit * 1000);
+        }
+      } catch (err) {
+        console.error('[OBS Overlay] TTS play error:', err);
       }
     }
 
@@ -182,6 +223,15 @@ export const ObsOverlay: React.FC = () => {
     if (timeoutIdRef.current) {
       clearTimeout(timeoutIdRef.current);
       timeoutIdRef.current = null;
+    }
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    if (ttsAudioRef.current) {
+      ttsAudioRef.current.pause();
+      ttsAudioRef.current.currentTime = 0;
     }
 
     setIsPlaying(false);
@@ -211,6 +261,7 @@ export const ObsOverlay: React.FC = () => {
 
       {/* Media Sound Element */}
       <audio ref={audioRef} />
+      <audio ref={ttsAudioRef} />
 
       {/* Event Alert Popup Container */}
       <AnimatePresence>

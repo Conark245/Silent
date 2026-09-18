@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { generateDonationTtsAudio } from './tts';
 import {
   AdminUser,
   Donation,
@@ -74,7 +75,16 @@ class MongoDatabase {
     audit_logs: [] as AuditLog[],
     telegram_settings: { ...initialTelegramSettings },
     cloudinary_settings: { ...initialCloudinarySettings },
-    system_settings: { defaultSoundId: '' } as SystemSettings,
+    system_settings: {
+      defaultSoundId: '',
+      ttsSettings: {
+        enabled: process.env.TTS_ENABLED === 'true',
+        voiceName: process.env.TTS_VOICE_NAME || 'Kore',
+        readFullMessage: true,
+        maxDurationSeconds: 15,
+        maxCharacters: 120,
+      },
+    } as SystemSettings,
   };
 
   private isConnected = false;
@@ -292,10 +302,15 @@ class MongoDatabase {
             fontFamily: 'Inter',
             backgroundColor: 'transparent',
             animationSpeed: 1,
-          }
+          },
+          ttsSettings: sysSettings.ttsSettings || {
+            enabled: process.env.TTS_ENABLED === 'true',
+            voiceName: process.env.TTS_VOICE_NAME || 'Kore',
+            readFullMessage: true,
+            maxDurationSeconds: 15,
+            maxCharacters: 120,
+          },
         };
-      } else {
-        await TelegramSettingsModel.create(initialTelegramSettings as any);
       }
     } catch (err) {
       console.error('[MongoDB] Error loading initial collections from MongoDB:', err);
@@ -623,13 +638,17 @@ class MongoDatabase {
   }
 
   // --- DONATION EVENTS (OBS OVERLAY QUEUE) ---
-  addDonationEvent(donation: Donation): DonationEvent {
+  async addDonationEvent(donation: Donation): Promise<DonationEvent> {
     const item = donation.donationItemId
       ? this.getDonationItemById(donation.donationItemId)
       : undefined;
     const sticker = item?.stickerId ? this.getMediaAssetById(item.stickerId) : undefined;
     const sound = item?.soundId ? this.getMediaAssetById(item.soundId) : undefined;
     const video = item?.videoId ? this.getMediaAssetById(item.videoId) : undefined;
+
+    const sysSettings = this.getSystemSettings();
+    const ttsSettings = sysSettings?.ttsSettings;
+    const tts = await generateDonationTtsAudio(donation.message || '', ttsSettings);
 
     const eventId = `EVT-${donation.publicId}-${Date.now()}`;
     const event: DonationEvent = {
@@ -643,6 +662,13 @@ class MongoDatabase {
         sticker,
         sound,
         video,
+        tts: tts ? {
+          url: tts.url,
+          maxDuration: ttsSettings?.readFullMessage === false && ttsSettings?.maxDurationSeconds
+            ? ttsSettings.maxDurationSeconds
+            : undefined,
+          readFullMessage: ttsSettings?.readFullMessage !== false,
+        } : undefined,
       },
       processed: false,
       createdAt: new Date().toISOString(),

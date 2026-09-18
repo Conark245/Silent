@@ -10,6 +10,7 @@ import {
   TelegramSettings,
   CloudinarySettings,
   SystemSettings,
+  TtsSettings,
 } from '../types';
 import { DonationAnalytics } from './DonationAnalytics';
 import {
@@ -42,6 +43,7 @@ import {
   ExternalLink,
   Sliders,
   Volume2,
+  Mic,
   ShieldCheck,
   Smartphone,
   Radio,
@@ -108,6 +110,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   });
   const [systemSettings, setSystemSettings] = useState<SystemSettings>({
     defaultSoundId: '',
+    ttsSettings: {
+      enabled: false,
+      voiceName: 'Kore',
+      readFullMessage: true,
+      maxDurationSeconds: 15,
+      maxCharacters: 120,
+    },
   });
   const [isSavingSystemSettings, setIsSavingSystemSettings] = useState(false);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
@@ -354,6 +363,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [copiedObsHeaderUrl, setCopiedObsHeaderUrl] = useState(false);
   const [obsQueueCount, setObsQueueCount] = useState<number>(0);
 
+  // AI Voice test alert state
+  const [ttsTestMessage, setTtsTestMessage] = useState('ကျေးဇူးတင်ပါတယ်ရှင့်၊ Live Stream အောင်မြင်ပါစေလို့ ဆုတောင်းပေးပါတယ်!');
+  const [triggeringTtsTest, setTriggeringTtsTest] = useState(false);
+
+  const updateTtsSetting = <K extends keyof TtsSettings>(key: K, value: TtsSettings[K]) => {
+    setSystemSettings(prev => ({
+      ...prev,
+      ttsSettings: {
+        enabled: false,
+        voiceName: 'Kore',
+        readFullMessage: true,
+        maxDurationSeconds: 15,
+        maxCharacters: 120,
+        ...(prev.ttsSettings || {}),
+        [key]: value,
+      },
+    }));
+  };
+
   const handleCopyObsUrl = () => {
     const url = `${window.location.origin}/overlay`;
     navigator.clipboard.writeText(url);
@@ -407,7 +435,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return () => clearInterval(interval);
   }, []);
 
-  const handleTriggerPreviewAlert = async (donationItemId?: string) => {
+  const handleTriggerPreviewAlert = async (donationItemId?: string, customMessage?: string) => {
     try {
       setTriggeringTest(true);
       const res = await fetch('/api/admin/trigger-preview-alert', {
@@ -416,7 +444,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         body: JSON.stringify({
           donorName: 'VIP Supporter (Preview)',
           amount: 10000,
-          message: '🎉 Test donation alert broadcasted live to OBS Overlay!',
+          message: customMessage || '🎉 Test donation alert broadcasted live to OBS Overlay!',
           donationItemId,
         }),
       });
@@ -436,6 +464,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       alert('Error triggering test alert');
     } finally {
       setTriggeringTest(false);
+    }
+  };
+
+  const handleTriggerTtsTestAlert = async () => {
+    try {
+      setTriggeringTtsTest(true);
+      const msg = ttsTestMessage.trim() || 'ကျေးဇူးတင်ပါတယ်ရှင့်၊ Live Stream အောင်မြင်ပါစေလို့ ဆုတောင်းပေးပါတယ်!';
+      const res = await fetch('/api/admin/trigger-preview-alert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          donorName: 'VIP Donor (AI Voice)',
+          amount: 15000,
+          message: msg,
+        }),
+      });
+
+      if (res.ok) {
+        setTestAlertToast('🎙️ AI Voice Alert broadcasted live to OBS Overlay!');
+        setTimeout(() => setTestAlertToast(null), 4000);
+        fetchObsQueueCount();
+        if (activeTab === 'donations') {
+          loadTabContent();
+        }
+      } else {
+        alert('Failed to trigger AI Voice alert');
+      }
+    } catch (err) {
+      console.error('Error triggering TTS test alert:', err);
+      alert('Error triggering AI Voice test alert');
+    } finally {
+      setTriggeringTtsTest(false);
     }
   };
 
@@ -547,7 +607,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           const data = await safeParseJson(mediaRes);
           if (data) setMediaAssets(data);
         }
-      } else if (activeTab === 'theme') {
+      } else if (activeTab === 'theme' || activeTab === 'obs-guide') {
         const sysRes = await fetch('/api/admin/system-settings');
         if (sysRes.status === 401) { onLogout(); return; }
         if (sysRes.ok) {
@@ -818,21 +878,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  const handleSaveSystemSettings = async () => {
+  const handleSaveSystemSettings = async (customSettings?: SystemSettings) => {
     try {
       setIsSavingSystemSettings(true);
+      const toSave = customSettings || systemSettings;
       const res = await fetch('/api/admin/system-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          defaultSoundId: systemSettings.defaultSoundId,
-          themeConfig: systemSettings.themeConfig,
+          defaultSoundId: toSave.defaultSoundId,
+          themeConfig: toSave.themeConfig,
+          ttsSettings: toSave.ttsSettings,
         }),
       });
       if (!res.ok) {
         alert('Failed to save system settings');
       } else {
-        alert('System settings saved');
+        const data = await res.json();
+        if (data.settings) {
+          setSystemSettings(data.settings);
+        }
+        setTestAlertToast('AI Voice & System Settings saved successfully!');
+        setTimeout(() => setTestAlertToast(null), 3000);
       }
     } catch (err) {
       alert('Error saving system settings');
@@ -3411,6 +3478,296 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
 
+              {/* AI VOICE READING (GEMINI TTS) SETUP GUIDE & DURATION CONTROLS */}
+              <div className="bg-white dark:bg-[#1E293B] border border-indigo-500/40 rounded-3xl p-6 md:p-8 shadow-2xl relative overflow-hidden space-y-6">
+                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-gradient-to-tr from-indigo-500 to-purple-600 text-white rounded-2xl shadow-lg shadow-indigo-500/20">
+                      <Mic className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-extrabold text-slate-900 dark:text-white text-lg md:text-xl">
+                          Google Gemini AI Voice Reading (TTS) လမ်းညွှန် & ဆက်တင်များ
+                        </h3>
+                        <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
+                          systemSettings.ttsSettings?.enabled
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                            : 'bg-slate-500/20 text-slate-400 border-slate-500/30'
+                        }`}>
+                          {systemSettings.ttsSettings?.enabled ? 'Active / ဖွင့်ထားသည်' : 'Disabled / ပိတ်ထားသည်'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                        Donor များ၏ Donation Message ကို Stream Screen ပေါ်တွင် AI Voice ဖြင့် တိုက်ရိုက် အသံထွက်ဖတ်ပြမည့် အဆင့်မြင့် လုပ်ဆောင်ချက်
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => handleSaveSystemSettings()}
+                      disabled={isSavingSystemSettings}
+                      className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl flex items-center gap-2 transition cursor-pointer shadow-md disabled:opacity-50"
+                    >
+                      <Check className="w-4 h-4" />
+                      <span>{isSavingSystemSettings ? 'Saving...' : '💾 AI Voice ဆက်တင်များ သိမ်းဆည်းမည်'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Feature Highlights & Setup Guide */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                  <div className="bg-slate-50 dark:bg-[#0F172A] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-1.5">
+                    <div className="font-bold text-indigo-400 flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4" />
+                      <span>Gemini 2.5 Flash TTS Engine</span>
+                    </div>
+                    <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
+                      Donation အတည်ပြုလိုက်သည်နှင့် Google Gemini AI မှ donor message ကို သဘာဝကျသော လူ့အသံအတိုင်း Audio WAV ဖိုင်အဖြစ် စက္ကန့်ပိုင်းအတွင်း ပြောင်းလဲပေးပါသည်။
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-50 dark:bg-[#0F172A] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-1.5">
+                    <div className="font-bold text-amber-400 flex items-center gap-1.5">
+                      <Clock className="w-4 h-4" />
+                      <span>Auto Alert Duration Extension</span>
+                    </div>
+                    <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
+                      အသံဖတ်ကြာချိန်အလိုက် OBS Screen ပေါ်တွင် Alert သည် ပျောက်မသွားဘဲ စာဖတ်သံ ပြီးဆုံးသည်အထိ အလိုအလျောက် စောင့်ဆိုင်းပြသပေးပါမည်။
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-50 dark:bg-[#0F172A] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-1.5">
+                    <div className="font-bold text-emerald-400 flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4" />
+                      <span>OBS Audio Mixer Integration</span>
+                    </div>
+                    <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
+                      OBS Browser Source တွင် <strong>Control audio via OBS</strong> ကို အမှန်ခြစ်ထားပါက OBS Mixer တွင် AI အသံ volume ကို သီးသန့် အတိုးအကျယ် ထိန်းညှိနိုင်ပါသည်။
+                    </p>
+                  </div>
+                </div>
+
+                {/* Configuration Controls Card */}
+                <div className="bg-slate-50 dark:bg-[#0F172A] p-5 md:p-6 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-6">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <h4 className="font-bold text-slate-900 dark:text-white text-sm">
+                        AI Voice စာဖတ်စနစ် အသုံးပြုမှု ဆက်တင်များ
+                      </h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        စာဖတ်ပြမည့်ကြာချိန်၊ စာအကုန်ဖတ်မဖတ်နှင့် အသံအမျိုးအစားကို အောက်တွင် ချိန်ညှိပါ
+                      </p>
+                    </div>
+
+                    {/* Master Switch */}
+                    <button
+                      onClick={() => updateTtsSetting('enabled', !systemSettings.ttsSettings?.enabled)}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                        systemSettings.ttsSettings?.enabled
+                          ? 'bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold'
+                          : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      <Mic className="w-3.5 h-3.5" />
+                      <span>{systemSettings.ttsSettings?.enabled ? 'Voice Reading: ON (ဖွင့်ထားသည်)' : 'Voice Reading: OFF (ပိတ်ထားသည်)'}</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                    {/* Voice Model Selection */}
+                    <div className="space-y-2">
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                        AI Voice အသံ အမျိုးအစား (Voice Name)
+                      </label>
+                      <select
+                        value={systemSettings.ttsSettings?.voiceName || 'Kore'}
+                        onChange={(e) => updateTtsSetting('voiceName', e.target.value)}
+                        className="w-full px-4 py-2.5 bg-white dark:bg-[#1E293B] border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      >
+                        <option value="Kore">Kore (သဘာဝကျပြီး နားထောင်ကောင်းသော အသံ - Default)</option>
+                        <option value="Puck">Puck (သွက်လက်တက်ကြွသော အသံ)</option>
+                        <option value="Charon">Charon (တည်ကြည်လေးနက်သော ယောက်ျားလေးအသံ)</option>
+                        <option value="Fenrir">Fenrir (ခန့်ညားထင်ရှားသော အသံ)</option>
+                        <option value="Aoede">Aoede (နူးညံ့ညင်သာသော မိန်းကလေးအသံ)</option>
+                      </select>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        အလှူရှင်မက်ဆေ့ချ်ကို ဖတ်ကြားပေးမည့် Google Gemini ၏ High-fidelity Voice ဖြစ်ပါသည်။
+                      </p>
+                    </div>
+
+                    {/* Reading Mode Selection ("စာအကုန်ဖတ်မှာလားဆိုတာ") */}
+                    <div className="space-y-2">
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                        စာဖတ်မည့် နည်းလမ်း (Reading Mode)
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => updateTtsSetting('readFullMessage', true)}
+                          className={`p-3 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                            systemSettings.ttsSettings?.readFullMessage !== false
+                              ? 'bg-indigo-600/10 border-indigo-500 text-indigo-400 font-bold'
+                              : 'bg-white dark:bg-[#1E293B] border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-400'
+                          }`}
+                        >
+                          <span className="text-xs font-bold">🟢 စာအကုန်ဖတ်မည်</span>
+                          <span className="text-[10px] font-normal text-slate-500 dark:text-slate-400 mt-1">
+                            မက်ဆေ့ချ် အပြည့်အစုံ ပြီးဆုံးသည်အထိ ဖတ်မည်
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => updateTtsSetting('readFullMessage', false)}
+                          className={`p-3 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                            systemSettings.ttsSettings?.readFullMessage === false
+                              ? 'bg-indigo-600/10 border-indigo-500 text-indigo-400 font-bold'
+                              : 'bg-white dark:bg-[#1E293B] border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-400'
+                          }`}
+                        >
+                          <span className="text-xs font-bold">⏱️ စာဖတ်ချိန် ကန့်သတ်မည်</span>
+                          <span className="text-[10px] font-normal text-slate-500 dark:text-slate-400 mt-1">
+                            သတ်မှတ် စက္ကန့် / စာလုံးရေအထိသာ ဖတ်မည်
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Limit Controls - only if readFullMessage === false ("စာဖတ်ပြမဲ့ကြာချိန်ကို ချိန်လို့ရအောင်လုပ်ပေး") */}
+                  {systemSettings.ttsSettings?.readFullMessage === false && (
+                    <div className="p-4 bg-white dark:bg-[#1E293B] rounded-2xl border border-indigo-500/30 space-y-4 animate-fade-in">
+                      <div className="flex items-center gap-2 text-indigo-400 text-xs font-bold">
+                        <Clock className="w-4 h-4" />
+                        <span>စာဖတ်ကြာချိန်နှင့် စာလုံးရေ ကန့်သတ်ချက်များ (Duration & Character Limits)</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Max Duration Slider */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-slate-700 dark:text-slate-300 font-medium">
+                              အမြင့်ဆုံး စာဖတ်ပြမည့်ကြာချိန် (Max Duration)
+                            </span>
+                            <span className="font-mono font-bold text-xs text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                              {systemSettings.ttsSettings?.maxDurationSeconds || 15} စက္ကန့် (Seconds)
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min="5"
+                            max="60"
+                            step="1"
+                            value={systemSettings.ttsSettings?.maxDurationSeconds || 15}
+                            onChange={(e) => updateTtsSetting('maxDurationSeconds', Number(e.target.value))}
+                            className="w-full accent-amber-500 cursor-pointer"
+                          />
+                          <div className="flex items-center justify-between text-[10px] text-slate-500">
+                            <span>၅ စက္ကန့်</span>
+                            <div className="flex gap-1.5">
+                              {[10, 15, 20, 30].map(sec => (
+                                <button
+                                  key={sec}
+                                  type="button"
+                                  onClick={() => updateTtsSetting('maxDurationSeconds', sec)}
+                                  className={`px-1.5 py-0.5 rounded border text-[10px] ${
+                                    (systemSettings.ttsSettings?.maxDurationSeconds || 15) === sec
+                                      ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 font-bold'
+                                      : 'border-slate-300 dark:border-slate-700 hover:border-slate-500'
+                                  }`}
+                                >
+                                  {sec}s
+                                </button>
+                              ))}
+                            </div>
+                            <span>၆၀ စက္ကန့်</span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            သတ်မှတ်စက္ကန့်ပြည့်ပါက AI အသံဖတ်ကြားမှုကို အလိုအလျောက် ရပ်တန့်ပေးမည်ဖြစ်ပြီး OBS Alert ကို ပြီးဆုံးစေပါမည်။
+                          </p>
+                        </div>
+
+                        {/* Max Characters Limit */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-slate-700 dark:text-slate-300 font-medium">
+                              အများဆုံး ဖတ်မည့် စာလုံးရေ (Max Characters)
+                            </span>
+                            <span className="font-mono font-bold text-xs text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                              {systemSettings.ttsSettings?.maxCharacters || 120} စာလုံး (Chars)
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min="30"
+                            max="300"
+                            step="10"
+                            value={systemSettings.ttsSettings?.maxCharacters || 120}
+                            onChange={(e) => updateTtsSetting('maxCharacters', Number(e.target.value))}
+                            className="w-full accent-indigo-500 cursor-pointer"
+                          />
+                          <div className="flex items-center justify-between text-[10px] text-slate-500">
+                            <span>၃၀ လုံး</span>
+                            <div className="flex gap-1.5">
+                              {[80, 120, 180, 250].map(c => (
+                                <button
+                                  key={c}
+                                  type="button"
+                                  onClick={() => updateTtsSetting('maxCharacters', c)}
+                                  className={`px-1.5 py-0.5 rounded border text-[10px] ${
+                                    (systemSettings.ttsSettings?.maxCharacters || 120) === c
+                                      ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/40 font-bold'
+                                      : 'border-slate-300 dark:border-slate-700 hover:border-slate-500'
+                                  }`}
+                                >
+                                  {c}
+                                </button>
+                              ))}
+                            </div>
+                            <span>၃၀၀ လုံး</span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            စာရှည်လွန်းပါက သတ်မှတ်စာလုံးရေထက် ကျော်လွန်သောအပိုစာများကို အလိုအလျောက် ဖြတ်တောက်ဖတ်ပြပါမည်။
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Test AI Voice Alert Area */}
+                  <div className="p-4 bg-white dark:bg-[#1E293B] rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h5 className="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-1.5">
+                        <Play className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>AI Voice Alert ကို OBS Overlay ပေါ် တိုက်ရိုက် စမ်းသပ်ထုတ်လွှင့်မည်</span>
+                      </h5>
+                      <span className="text-[10px] text-slate-500">Instant Live Preview</span>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-2.5">
+                      <input
+                        type="text"
+                        value={ttsTestMessage}
+                        onChange={(e) => setTtsTestMessage(e.target.value)}
+                        placeholder="စမ်းသပ်ဖတ်ကြားလိုသော စာသားကို ရေးထည့်ပါ..."
+                        className="flex-1 px-4 py-2.5 bg-slate-50 dark:bg-[#0F172A] border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleTriggerTtsTestAlert}
+                        disabled={triggeringTtsTest}
+                        className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition cursor-pointer shadow-md disabled:opacity-50 shrink-0"
+                      >
+                        <Sparkles className="w-4 h-4 fill-current" />
+                        <span>{triggeringTtsTest ? 'Broadcasting...' : '⚡ Test AI Voice Alert'}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* Troubleshooting FAQ Section */}
               <div className="bg-white dark:bg-[#1E293B] border border-slate-200 dark:border-slate-800 rounded-2xl p-6 md:p-8 space-y-6">
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -3447,6 +3804,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed pl-6">
                       ဖြေ - Admin Dashboard ၏ <strong>"Media Assets"</strong> သို့မဟုတ် <strong>"Reward Items"</strong> Tab တွင် Sticker / Sound / Video စက္ကန့်နှင့် Volume Level များကို အလိုရှိသလို စိတ်ကြိုက် ပြင်ဆင်သတ်မှတ်နိုင်ပါသည်။
                     </p>
+                  </div>
+
+                  <div className="bg-slate-50 dark:bg-[#0F172A] p-4 rounded-xl border border-slate-300 dark:border-slate-700/80 space-y-1.5">
+                    <h5 className="font-bold text-purple-300 text-xs flex items-center gap-2">
+                      <Mic className="w-4 h-4 text-purple-400" />
+                      <span>မေး - Gemini AI Voice Reading စာဖတ်သံ မထွက်လာပါက မည်သို့ စစ်ဆေးရမည်နည်း?</span>
+                    </h5>
+                    <div className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed pl-6 space-y-1">
+                      <p>အောက်ပါ အချက်များကို အစဉ်လိုက် စစ်ဆေးပေးပါ -</p>
+                      <ul className="list-disc pl-4 space-y-0.5 text-slate-600 dark:text-slate-400">
+                        <li>အထက်ပါ <strong>Google Gemini AI Voice Reading</strong> Card တွင် Master Switch ကို <strong>Voice Reading: ON</strong> ဖွင့်ထားပြီး သိမ်းဆည်းထားခြင်း ရှိမရှိ။</li>
+                        <li>Server ၏ `.env` ဖိုင်တွင် <strong>GEMINI_API_KEY</strong> နှင့် Cloudinary Credentials (Cloud Name, API Key, API Secret) ထည့်သွင်းထားခြင်း ရှိမရှိ။</li>
+                        <li>Donation အလှူတွင် donor ရေးသားသော <strong>Message စာသား ပါဝင်ခြင်း ရှိမရှိ</strong> (စာအလွတ်ဖြစ်ပါက အသံထွက်မည်မဟုတ်ပါ)။</li>
+                        <li>OBS Browser Source Properties တွင် <strong>Control audio via OBS</strong> ကို အမှန်ခြစ်ထားပြီး OBS Audio Mixer တွင် Browser Source အသံ Mute ဖြစ်မနေကြောင်း စစ်ဆေးပါ။</li>
+                        <li>အထက်ပါ <strong>"⚡ Test AI Voice Alert"</strong> ခလုတ်ကို နှိပ်၍ OBS Overlay တွင် အသံတိုက်ရိုက် ထွက်မထွက် စမ်းသပ်ကြည့်နိုင်ပါသည်။</li>
+                      </ul>
+                    </div>
                   </div>
                 </div>
               </div>

@@ -11,7 +11,7 @@ export default function App() {
 
   const resolveRoute = (path: string): 'user' | 'admin' | 'overlay' | '404' => {
     if (path === '/overlay' || path.startsWith('/overlay/')) return 'overlay';
-    if (path === '/live/zhik19qx' || path.startsWith('/live/zhik19qx/')) return 'user';
+    if (path === '/' || path === '' || path === '/live' || path.startsWith('/live/')) return 'user';
     if (path === '/admin' || path.startsWith('/admin/') || path === '/login' || path.startsWith('/login/')) return 'admin';
     return '404';
   };
@@ -117,9 +117,23 @@ export default function App() {
         </svg>
       </div>
       <h1 className="text-4xl font-bold text-slate-800 dark:text-white mb-3">404 - Not Found</h1>
-      <p className="text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+      <p className="text-slate-500 dark:text-slate-400 max-w-md mx-auto mb-6">
         The page you are looking for does not exist or has been moved.
       </p>
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        <button
+          onClick={() => navigateTo('user')}
+          className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm rounded-xl transition shadow-lg cursor-pointer"
+        >
+          Go to Donation Page
+        </button>
+        <button
+          onClick={() => navigateTo('admin')}
+          className="px-5 py-2.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-semibold text-sm rounded-xl transition cursor-pointer"
+        >
+          Admin Dashboard
+        </button>
+      </div>
     </div>
   );
 }

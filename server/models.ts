@@ -135,6 +135,16 @@ const SystemSettingsSchema = new Schema({
     backgroundColor: { type: String, default: 'transparent' },
     animationSpeed: { type: Number, default: 1 },
   },
+  ttsSettings: {
+    type: Schema.Types.Mixed,
+    default: {
+      enabled: false,
+      voiceName: 'Kore',
+      readFullMessage: true,
+      maxDurationSeconds: 15,
+      maxCharacters: 120,
+    },
+  },
 });
 
 export const AdminModel = mongoose.models.Admin || mongoose.model('Admin', AdminSchema);

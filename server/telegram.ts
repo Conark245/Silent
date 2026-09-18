@@ -395,7 +395,7 @@ export async function handleTelegramWebhook(body: any) {
 
       if (updated) {
         // Broadcast real-time events for OBS and Website
-        const event = db.addDonationEvent(updated);
+        const event = await db.addDonationEvent(updated);
         realtimeServer.broadcastDonationEvent(event);
         realtimeServer.broadcastDonationStatus(updated);
 

@@ -425,7 +425,7 @@ export function createExpressApp() {
   // --- PROTECTED ADMIN API ENDPOINTS ---
 
   // Trigger mock donation alert event for OBS overlay preview testing
-  app.post('/api/admin/trigger-preview-alert', requireAdminAuth, (req: AuthenticatedRequest, res) => {
+  app.post('/api/admin/trigger-preview-alert', requireAdminAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const { donorName, amount, message, donationItemId } = req.body || {};
 
@@ -451,7 +451,7 @@ export function createExpressApp() {
         approvedBy: req.admin?.username || 'Admin (Preview Button)',
       };
 
-      const event = db.addDonationEvent(testDonation);
+      const event = await db.addDonationEvent(testDonation);
       realtimeServer.broadcastDonationEvent(event);
 
       auditLogService.log({
@@ -488,7 +488,7 @@ export function createExpressApp() {
     res.json({ success: true });
   });
 
-  app.patch('/api/admin/donations/:id/status', requireAdminAuth, (req: AuthenticatedRequest, res) => {
+  app.patch('/api/admin/donations/:id/status', requireAdminAuth, async (req: AuthenticatedRequest, res) => {
     const { status } = req.body;
     if (status !== 'APPROVED' && status !== 'DECLINED') {
       return res.status(400).json({ error: 'Invalid status. Must be APPROVED or DECLINED' });
@@ -500,7 +500,7 @@ export function createExpressApp() {
     }
 
     if (status === 'APPROVED') {
-      const event = db.addDonationEvent(updated);
+      const event = await db.addDonationEvent(updated);
       realtimeServer.broadcastDonationEvent(event);
     }
 
@@ -538,11 +538,12 @@ export function createExpressApp() {
     res.json(db.getSystemSettings());
   });
   app.post('/api/admin/system-settings', requireAdminAuth, (req: AuthenticatedRequest, res) => {
-    const { defaultSoundId, themeConfig } = req.body;
+    const { defaultSoundId, themeConfig, ttsSettings } = req.body;
     
     const updates: any = {};
     if (defaultSoundId !== undefined) updates.defaultSoundId = defaultSoundId;
     if (themeConfig !== undefined) updates.themeConfig = themeConfig;
+    if (ttsSettings !== undefined) updates.ttsSettings = ttsSettings;
 
     const updated = db.updateSystemSettings(updates);
     
@@ -553,7 +554,7 @@ export function createExpressApp() {
     auditLogService.log({
       adminId: req.admin!.id,
       action: 'UPDATE_SYSTEM_SETTINGS',
-      metadata: { updated: true },
+      metadata: { updated: true, ttsUpdated: ttsSettings !== undefined },
     });
     res.json({ success: true, settings: updated });
   });
